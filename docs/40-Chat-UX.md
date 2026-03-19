@@ -12,6 +12,8 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - better visual hierarchy for project/session context
 - styled message rendering for user and assistant roles
 - basic message metadata display
+- visible in-flight feedback after the user sends a message
+- a slow-request notice when the model backend takes too long to respond
 
 ### Excluded
 
@@ -34,6 +36,8 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - distinguish user and assistant alignment
 - show role label and timestamp
 - preserve multi-line structured content
+- insert a temporary assistant placeholder immediately after send
+- replace the placeholder with the real reply or an error message
 
 ### Context Area
 
@@ -45,3 +49,5 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - use custom list item widgets instead of plain text rows
 - keep the rendering simple enough for Qt Widgets
 - prefer legibility and stability over decorative styling
+- keep the waiting state in the UI only; do not persist placeholder rows to SQLite
+- route replies back to the session that originated the request, even if the user changes selection

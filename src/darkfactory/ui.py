@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -192,6 +192,13 @@ class MainWindow(QMainWindow):
         self.current_project: Project | None = None
         self.current_session: Session | None = None
         self.worker: AssistantWorker | None = None
+        self.pending_session_id: int | None = None
+        self.pending_message_item: QListWidgetItem | None = None
+        self.pending_message_text = "正在思考，请稍候..."
+
+        self.slow_response_timer = QTimer(self)
+        self.slow_response_timer.setSingleShot(True)
+        self.slow_response_timer.timeout.connect(self.on_slow_response_timeout)
 
         self.setWindowTitle("DarkFactory")
         self.resize(1180, 760)
@@ -334,9 +341,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(create_session_action)
         file_menu.addAction(edit_project_action)
 
-        self.statusBar().showMessage(
-            f"模式：{self.assistant.mode_label()} | 数据库：{self.storage.db_path}"
-        )
+        self._set_status_message()
 
     def refresh_tree(self) -> None:
         previous_session_id = self.current_session.id if self.current_session else None
@@ -426,7 +431,13 @@ class MainWindow(QMainWindow):
         ]
         return "项目上下文：" + " | ".join(parts)
 
-    def append_message(self, role: str, content: str, *, timestamp: str = "刚刚") -> None:
+    def append_message(
+        self,
+        role: str,
+        content: str,
+        *,
+        timestamp: str = "刚刚",
+    ) -> QListWidgetItem:
         item = QListWidgetItem()
         widget = MessageCard(role=role, content=content, timestamp=timestamp)
         item.setSizeHint(widget.sizeHint())
@@ -434,6 +445,40 @@ class MainWindow(QMainWindow):
         self.message_list.setItemWidget(item, widget)
         self.message_list.scrollToBottom()
         self.update_message_stack()
+        return item
+
+    def update_message_item(
+        self,
+        item: QListWidgetItem,
+        *,
+        role: str,
+        content: str,
+        timestamp: str = "刚刚",
+    ) -> None:
+        widget = MessageCard(role=role, content=content, timestamp=timestamp)
+        item.setSizeHint(widget.sizeHint())
+        self.message_list.setItemWidget(item, widget)
+        self.message_list.scrollToBottom()
+        self.update_message_stack()
+
+    def remove_message_item(self, item: QListWidgetItem | None) -> None:
+        if item is None:
+            return
+        try:
+            row = self.message_list.row(item)
+        except RuntimeError:
+            return
+        if row >= 0:
+            removed = self.message_list.takeItem(row)
+            del removed
+        self.update_message_stack()
+
+    def _set_status_message(self, detail: str | None = None) -> None:
+        base = f"模式：{self.assistant.mode_label()} | 数据库：{self.storage.db_path}"
+        if detail:
+            self.statusBar().showMessage(f"{detail} | {base}")
+            return
+        self.statusBar().showMessage(base)
 
     def update_message_stack(self) -> None:
         has_active_session = self.current_session is not None
@@ -451,6 +496,39 @@ class MainWindow(QMainWindow):
         self.new_session_button.setEnabled(self.current_project is not None and not busy)
         for button in self.quick_buttons:
             button.setEnabled(has_session and not busy)
+
+    def start_pending_response(self, session_id: int) -> None:
+        self.pending_session_id = session_id
+        self.pending_message_item = self.append_message(
+            "assistant",
+            self.pending_message_text,
+            timestamp="处理中",
+        )
+        self.slow_response_timer.start(8000)
+        self._set_status_message("等待模型回复")
+
+    def clear_pending_response(self, session_id: int) -> None:
+        if self.pending_session_id != session_id:
+            return
+        self.slow_response_timer.stop()
+        if self.current_session is not None and self.current_session.id == session_id:
+            self.remove_message_item(self.pending_message_item)
+        self.pending_message_item = None
+        self.pending_session_id = None
+        self._set_status_message()
+
+    def on_slow_response_timeout(self) -> None:
+        if self.pending_message_item is None or self.pending_session_id is None:
+            return
+        if self.current_session is None or self.current_session.id != self.pending_session_id:
+            return
+        self.update_message_item(
+            self.pending_message_item,
+            role="assistant",
+            content="请求耗时较长，仍在等待模型返回，请稍候...",
+            timestamp="处理中",
+        )
+        self._set_status_message("请求耗时较长")
 
     def create_project(self) -> None:
         dialog = ProjectDialog(self)
@@ -636,37 +714,59 @@ class MainWindow(QMainWindow):
         if not message:
             return
 
-        self.storage.add_message(self.current_session.id, "user", message)
+        session_id = self.current_session.id
+        project = self.current_project
+        session = self.current_session
+
+        self.storage.add_message(session_id, "user", message)
         self.append_message("user", message)
         self.input_line.clear()
         self.set_busy(True)
+        self.start_pending_response(session_id)
 
-        recent_messages = self.storage.list_messages(self.current_session.id)[-12:]
+        recent_messages = self.storage.list_messages(session_id)[-12:]
         self.worker = AssistantWorker(
             self.assistant,
-            project=self.current_project,
-            session=self.current_session,
+            project=project,
+            session=session,
             recent_messages=recent_messages,
             user_message=message,
         )
-        self.worker.succeeded.connect(self.on_assistant_reply)
-        self.worker.failed.connect(self.on_assistant_error)
-        self.worker.finished.connect(lambda: self.set_busy(False))
+        self.worker.succeeded.connect(
+            lambda content, request_session_id=session_id: self.on_assistant_reply(
+                request_session_id,
+                content,
+            )
+        )
+        self.worker.failed.connect(
+            lambda error_message, request_session_id=session_id: self.on_assistant_error(
+                request_session_id,
+                error_message,
+            )
+        )
+        self.worker.finished.connect(
+            lambda request_session_id=session_id: self.on_request_finished(request_session_id)
+        )
         self.worker.start()
 
-    def on_assistant_reply(self, content: str) -> None:
-        if self.current_session is None:
-            return
-        self.storage.add_message(self.current_session.id, "assistant", content)
-        self.refresh_tree()
-        self.load_session(self.current_session.id)
+    def on_request_finished(self, session_id: int) -> None:
+        self.clear_pending_response(session_id)
+        self.set_busy(False)
+        self.worker = None
 
-    def on_assistant_error(self, message: str) -> None:
-        if self.current_session is None:
-            return
+    def on_assistant_reply(self, session_id: int, content: str) -> None:
+        self.storage.add_message(session_id, "assistant", content)
+        self.refresh_tree()
+        if self.current_session is not None and self.current_session.id == session_id:
+            self.load_session(session_id)
+
+    def on_assistant_error(self, session_id: int, message: str) -> None:
         error_text = f"【错误】\n{message}"
-        self.storage.add_message(self.current_session.id, "assistant", error_text)
-        self.append_message("assistant", error_text)
+        self.storage.add_message(session_id, "assistant", error_text)
+        if self.current_session is not None and self.current_session.id == session_id:
+            self.clear_pending_response(session_id)
+            self.append_message("assistant", error_text)
+        self.refresh_tree()
         QMessageBox.warning(self, "请求失败", message)
 
     def set_busy(self, busy: bool) -> None:
