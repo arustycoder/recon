@@ -22,7 +22,9 @@ Deliver the first runnable desktop version of DarkFactory:
 - quick action buttons for domain prompts
 - assistant service abstraction
 - mock assistant as default fallback
+- local LLM mode for direct desktop-side chat
 - optional HTTP backend client
+- packaging path reserved for future Windows installer delivery
 
 ### Excluded
 
@@ -93,9 +95,17 @@ The desktop app supports two execution modes:
 - sends project/session context plus recent messages
 - expects a JSON response with `reply`
 
+### Local LLM mode
+
+- enabled when local provider configuration is present
+- uses the same desktop chat window
+- should preserve structured output and recent-message context
+- first target providers are `ollama` and `openai_compatible`
+
 ## Implementation Notes
 
 - keep UI code thin
 - keep storage in a separate module
 - keep assistant integration behind a service interface
 - ensure the app remains usable without external dependencies beyond the configured Python packages
+- keep entrypoints and resources compatible with later executable and installer packaging

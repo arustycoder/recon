@@ -29,6 +29,9 @@ Build a project-based conversational workbench for energy operations analysis:
 - Structured answer rendering
 - Local persistence
 - API integration layer for model access
+- Local LLM integration for direct chat in the desktop app
+- OpenAI-compatible backend integration for remote chat providers
+- Windows installer packaging requirement
 
 ### Excluded
 
@@ -55,6 +58,7 @@ Build a project-based conversational workbench for energy operations analysis:
 ### Networking
 
 - `httpx` for backend requests
+- OpenAI-compatible request flow for local and remote model providers
 
 ### Packaging
 
@@ -76,7 +80,7 @@ Desktop App
    ↓
 Local Service Layer
    ↓
-Your Backend API
+Local LLM / Your Backend API
    ↓
 Model / Business Logic / Data Source
 ```
@@ -162,6 +166,8 @@ Model / Business Logic / Data Source
 
 - Implement send flow
 - Add backend client
+- Add local LLM client path for desktop-side inference
+- Add OpenAI-compatible backend client path
 - Add request timeout and error handling
 - Render structured assistant results
 
@@ -175,6 +181,8 @@ Model / Business Logic / Data Source
 
 - Add app icon and version info
 - Package executable
+- Build a distributable Windows installer package
+- Define installation path, shortcuts, and upgrade behavior
 - Validate clean startup on Windows
 
 ## 9. MVP Acceptance Criteria
@@ -184,7 +192,10 @@ Model / Business Logic / Data Source
 - Session history persists after restart
 - Quick buttons can create useful domain prompts
 - Responses are rendered clearly and consistently
+- If local LLM is configured, users can chat with it directly in the dialogue window
+- If an OpenAI-compatible backend is configured, users can chat with it directly in the dialogue window
 - App can be packaged into a Windows executable
+- App can be packaged into a Windows installer for end-user delivery
 
 ## 10. Key Risks
 
@@ -192,6 +203,8 @@ Model / Business Logic / Data Source
 - Exposing API keys in the desktop client
 - Returning unstructured answers that users do not trust
 - Pulling in too much real-time integration too early
+- Local LLM resource usage may affect responsiveness on low-spec machines
+- Different OpenAI-compatible backends may vary in API fidelity and response shape
 
 ## 11. Immediate Next Steps
 
@@ -200,3 +213,5 @@ Model / Business Logic / Data Source
 3. Implement project and session CRUD
 4. Implement message send and response flow
 5. Wire in backend API contract
+6. Add local LLM provider support for direct desktop chat
+7. Add OpenAI-compatible provider support for remote desktop chat
