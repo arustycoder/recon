@@ -9,9 +9,10 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
 ### Included
 
 - FastAPI gateway application
-- provider registry with multiple named providers
-- skill registry with built-in prompt skills
+- provider registry with multiple named providers and fallback routing
+- skill registry with built-in prompt skills, templates, and request-time arguments
 - health, providers, skills, chat, stream, and cancel endpoints
+- request listing and detail endpoints for in-memory observability
 - request id management and best-effort cancellation state
 
 ### Excluded
@@ -29,9 +30,15 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
   - `id`
   - `kind`
   - `label`
+  - `enabled`
+  - `priority`
+  - `tags`
+  - `default_skill_ids`
   - provider-specific connection settings
 - the desktop or caller can request a specific `provider_id`
+- requests can choose `provider_strategy=default|fallback`
 - gateway should expose `GET /api/providers` for discovery
+- gateway should expose `GET /api/providers/{provider_id}/health` for targeted checks
 
 ## Skills
 
@@ -41,6 +48,8 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
   - `project_context`
   - `structured_output`
   - `ops_guardrails`
+- skills may define default parameters and request-time overrides
+- requests can choose `skill_mode=merge|request_only`
 - gateway should expose `GET /api/skills`
 
 ## API Behavior

@@ -179,6 +179,33 @@ class AssistantServiceTests(unittest.TestCase):
         self.assertEqual(cancel_url, "http://localhost:8000/api/chat/req_123/cancel")
         client.post.assert_called_once()
 
+    def test_reply_via_http_propagates_client_request_id_header(self) -> None:
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"reply": "ok"}
+        client = Mock()
+        client.post.return_value = response
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=client)
+        context_manager.__exit__ = Mock(return_value=None)
+
+        with patch("httpx.Client", return_value=context_manager):
+            reply = self.service._reply_via_http(
+                api_url="http://localhost:8000/api/chat",
+                project=self.project,
+                session=self.session,
+                recent_messages=[],
+                user_message="hello",
+                timeout=10.0,
+                client_request_id="req-abc",
+            )
+
+        self.assertEqual(reply, "ok")
+        self.assertEqual(
+            client.post.call_args.kwargs["headers"]["X-Client-Request-Id"],
+            "req-abc",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

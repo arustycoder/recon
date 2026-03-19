@@ -80,6 +80,7 @@ class AssistantService:
         recent_messages: Iterable[Message],
         user_message: str,
         settings: ProviderSettings | None = None,
+        client_request_id: str = "",
     ) -> str:
         return "".join(
             self.stream_reply(
@@ -88,6 +89,7 @@ class AssistantService:
                 recent_messages=recent_messages,
                 user_message=user_message,
                 settings=settings,
+                client_request_id=client_request_id,
             )
         )
 
@@ -99,6 +101,7 @@ class AssistantService:
         recent_messages: Iterable[Message],
         user_message: str,
         settings: ProviderSettings | None = None,
+        client_request_id: str = "",
     ) -> Iterator[str]:
         config = settings or self.current_settings()
         provider = self.provider_name(config)
@@ -115,6 +118,7 @@ class AssistantService:
                 recent_messages=recent_messages,
                 user_message=user_message,
                 timeout=timeout,
+                client_request_id=client_request_id,
             )
             return
         if provider == "openai_compatible":
@@ -128,6 +132,7 @@ class AssistantService:
                 recent_messages=recent_messages,
                 user_message=user_message,
                 timeout=timeout,
+                client_request_id=client_request_id,
             )
             return
         if provider == "http_backend":
@@ -139,6 +144,7 @@ class AssistantService:
                 recent_messages=recent_messages,
                 user_message=user_message,
                 timeout=timeout,
+                client_request_id=client_request_id,
             )
             return
         self._last_metrics.stream_mode = "stream"
@@ -226,6 +232,7 @@ class AssistantService:
         recent_messages: Iterable[Message],
         user_message: str,
         timeout: float,
+        client_request_id: str,
     ) -> str:
         if not api_url:
             raise ValueError("HTTP backend provider requires api_url")
@@ -237,8 +244,9 @@ class AssistantService:
         }
         import httpx
 
+        headers = {"X-Client-Request-Id": client_request_id} if client_request_id else {}
         with httpx.Client(timeout=timeout) as client:
-            response = client.post(api_url, json=payload)
+            response = client.post(api_url, json=payload, headers=headers)
             response.raise_for_status()
         data = response.json()
         self._apply_usage_metrics(data.get("usage") or {})
@@ -258,6 +266,7 @@ class AssistantService:
         recent_messages: Iterable[Message],
         user_message: str,
         timeout: float,
+        client_request_id: str,
     ) -> str:
         if not base_url:
             raise ValueError("OpenAI-compatible provider requires base_url")
@@ -274,6 +283,7 @@ class AssistantService:
                 recent_messages=recent_messages,
                 user_message=user_message,
                 timeout=timeout,
+                client_request_id=client_request_id,
             )
         )
 
@@ -288,6 +298,7 @@ class AssistantService:
         recent_messages: Iterable[Message],
         user_message: str,
         timeout: float,
+        client_request_id: str,
     ) -> Iterator[str]:
         if not base_url:
             raise ValueError("OpenAI-compatible provider requires base_url")
@@ -312,6 +323,8 @@ class AssistantService:
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
+        if client_request_id:
+            headers["X-Client-Request-Id"] = client_request_id
 
         endpoint = base_url.rstrip("/") + "/chat/completions"
         collected_parts: list[str] = []

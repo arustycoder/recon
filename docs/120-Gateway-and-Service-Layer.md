@@ -43,13 +43,15 @@ Define the future server-side layer that sits between the desktop workbench and 
 ### Health
 
 - `GET /api/health`
-- returns service availability and optional dependency health
+- returns service availability and top-level gateway metadata
 
 Suggested shape:
 
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "provider_count": 2,
+  "default_provider_id": "primary"
 }
 ```
 
@@ -89,6 +91,7 @@ Suggested response:
 ```json
 {
   "request_id": "req_123",
+  "client_request_id": "desk_456",
   "reply": "..."
 }
 ```
@@ -121,6 +124,13 @@ Suggested response:
   "status": "cancel_requested"
 }
 ```
+
+### Request Inspection
+
+- `GET /api/requests`
+- `GET /api/requests/{request_id}`
+- returns recent in-memory gateway request state for debugging and integration testing
+- should preserve correlation between gateway `request_id`, optional client request ids, and downstream provider traces
 
 ## Desktop Reservation
 

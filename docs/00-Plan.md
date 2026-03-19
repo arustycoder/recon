@@ -66,6 +66,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - `httpx` for backend requests
 - OpenAI-compatible request flow for local and remote model providers
 - gateway-friendly HTTP protocol for `chat / stream / cancel / health`
+- gateway-side multi-provider routing and skill orchestration
 
 ### Packaging
 
@@ -182,6 +183,7 @@ Model / Business Logic / Data Source
 - Add request cancel interaction for long-running calls
 - Render structured assistant results
 - Reserve gateway protocol endpoints for future server-side cancellation and orchestration
+- Add provider profiles, fallback routing, and skill templating in the gateway layer
 
 ### Phase 5: Domainization
 
@@ -234,3 +236,4 @@ Model / Business Logic / Data Source
 5. Wire in backend API contract
 6. Add local LLM provider support for direct desktop chat
 7. Add OpenAI-compatible provider support for remote desktop chat
+8. Expand gateway routing, skill management, and service-side observability

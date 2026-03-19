@@ -55,6 +55,7 @@ Desktop features:
 - request log viewer under `工具 -> 请求日志`
 - automatic session titling for generic new sessions
 - HTTP backend settings already reserve gateway URLs for `chat / stream / cancel / health / providers`
+- gateway now exposes provider health, skill discovery, and recent request inspection endpoints
 
 Provider examples:
 
@@ -101,6 +102,10 @@ Docs:
 - `docs/110-Request-Logs-And-Streaming.md`
 - `docs/120-Gateway-and-Service-Layer.md`
 - `docs/130-Gateway-Implementation.md`
+- `docs/140-Multi-Provider-Routing.md`
+- `docs/150-Skill-Pipeline.md`
+- `docs/160-Gateway-Review.md`
+- `docs/170-Gateway-Observability.md`
 
 Provider comparison:
 

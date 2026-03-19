@@ -3,9 +3,9 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -13,8 +13,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from darkfactory.models import ProviderSettings
 from darkfactory_gateway.app import create_app
+from darkfactory_gateway.models import GatewayChatRequest
+from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
 from darkfactory_gateway.service import GatewayService
+from darkfactory_gateway.skills import SkillRecord, SkillRegistry
 
 
 def sample_request() -> dict:
@@ -36,6 +40,7 @@ def sample_request() -> dict:
         },
         "recent_messages": [],
         "message": "请分析蒸汽不足",
+        "client_request_id": "client-001",
         "provider_id": "mock",
         "skill_ids": ["structured_output"],
     }
@@ -53,6 +58,7 @@ class GatewayAppTests(unittest.TestCase):
 
         self.assertEqual(health.status_code, 200)
         self.assertEqual(health.json()["status"], "ok")
+        self.assertGreaterEqual(health.json()["provider_count"], 1)
         self.assertTrue(any(item["id"] == "mock" for item in providers.json()))
         self.assertTrue(any(item["id"] == "structured_output" for item in skills.json()))
 
@@ -62,6 +68,8 @@ class GatewayAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(body["provider_id"], "mock")
+        self.assertEqual(body["client_request_id"], "client-001")
+        self.assertEqual(body["attempted_provider_ids"], ["mock"])
         self.assertIn("【结论】", body["reply"])
 
     def test_stream_returns_sse_events(self) -> None:
@@ -73,6 +81,25 @@ class GatewayAppTests(unittest.TestCase):
         self.assertIn('"type": "delta"', content)
         self.assertIn('"type": "done"', content)
 
+    def test_provider_health_endpoint(self) -> None:
+        response = self.client.get("/api/providers/mock/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+
+    def test_request_endpoints_return_completed_request(self) -> None:
+        chat = self.client.post("/api/chat", json=sample_request())
+        request_id = chat.json()["request_id"]
+
+        listing = self.client.get("/api/requests")
+        detail = self.client.get(f"/api/requests/{request_id}")
+
+        self.assertEqual(listing.status_code, 200)
+        self.assertTrue(any(item["request_id"] == request_id for item in listing.json()))
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["status"], "completed")
+        self.assertEqual(detail.json()["client_request_id"], "client-001")
+
     def test_cancel_endpoint_marks_request(self) -> None:
         request_id = self.service.request_tracker.create()
 
@@ -80,6 +107,88 @@ class GatewayAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "cancel_requested")
+
+    def test_fallback_strategy_uses_second_provider(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="broken",
+                    kind="openai_compatible",
+                    label="Broken",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://broken.invalid/v1",
+                        openai_model="broken-model",
+                    ),
+                    default=True,
+                    priority=1,
+                ),
+                ProviderRecord(
+                    id="mock",
+                    kind="mock",
+                    label="Mock",
+                    settings=ProviderSettings(provider="mock"),
+                    priority=2,
+                ),
+            ]
+        )
+        service = GatewayService(provider_registry=registry)
+
+        def fake_stream_reply(self, **kwargs):
+            settings = kwargs["settings"]
+            if settings.provider == "openai_compatible":
+                raise RuntimeError("broken provider")
+            yield "fallback reply"
+
+        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+            response = service.chat(
+                service_request(
+                    provider_id=None,
+                    provider_strategy="fallback",
+                )
+            )
+
+        self.assertEqual(response.provider_id, "mock")
+        self.assertEqual(response.attempted_provider_ids, ["broken", "mock"])
+        self.assertEqual(response.reply, "fallback reply")
+
+    def test_skill_template_injects_arguments(self) -> None:
+        registry = SkillRegistry(
+            [
+                SkillRecord(
+                    id="custom",
+                    label="Custom",
+                    description="Custom skill",
+                    template="输出风格为 {style}，项目是 {project_name}。",
+                    parameters={"style": "审慎"},
+                )
+            ]
+        )
+        service = GatewayService(skill_registry=registry)
+        captured: dict[str, str] = {}
+
+        def fake_stream_reply(self, **kwargs):
+            captured["user_message"] = kwargs["user_message"]
+            yield "ok"
+
+        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+            service.chat(
+                service_request(
+                    skill_ids=["custom"],
+                    skill_mode="request_only",
+                    skill_arguments={"custom": {"style": "激进"}},
+                )
+            )
+
+        user_message = captured["user_message"]
+        self.assertIn("[custom] 输出风格为 激进，项目是 测试项目。", user_message)
+        self.assertIn("[User Message]", user_message)
+
+
+def service_request(**updates):
+    payload = sample_request()
+    payload.update(updates)
+    return GatewayChatRequest(**payload)
 
 
 if __name__ == "__main__":
