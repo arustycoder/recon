@@ -8,6 +8,10 @@ from .models import Message, Project, Session
 
 
 class AssistantService:
+    def mode_label(self) -> str:
+        api_url = os.getenv("DARKFACTORY_API_URL", "").strip()
+        return f"HTTP: {api_url}" if api_url else "Mock"
+
     def reply(
         self,
         *,
@@ -55,10 +59,16 @@ class AssistantService:
 
     def _reply_via_mock(self, *, project: Project, user_message: str) -> str:
         prompt = user_message.strip()
+        project_context = " / ".join(
+            part for part in (project.plant, project.unit, project.expert_type) if part
+        )
+        if not project_context:
+            project_context = "未配置项目上下文"
 
         if "蒸汽" in prompt:
             conclusion = "当前蒸汽系统存在阶段性供需偏紧的迹象。"
             reasons = [
+                f"当前项目上下文为：{project_context}",
                 "抽汽侧需求上升会直接压缩机组可调余量",
                 "如果锅炉负荷已接近上限，系统缓冲空间会明显下降",
                 "当前版本未接入实时点位，结论基于行业经验模板",
@@ -72,6 +82,7 @@ class AssistantService:
         elif "负荷" in prompt:
             conclusion = "当前问题更适合从负荷分配和运行方式切换上优化。"
             reasons = [
+                f"当前项目上下文为：{project_context}",
                 "单机负荷过高会抬高边际煤耗和运行风险",
                 "负荷分配不均可能放大抽汽与发电之间的冲突",
                 "第一版尚未接入历史效率曲线，因此无法给出精确数值",
@@ -85,6 +96,7 @@ class AssistantService:
         else:
             conclusion = "当前问题可以先按能效与运行约束两个维度组织分析。"
             reasons = [
+                f"当前项目上下文为：{project_context}",
                 "管理人员更关心结果与影响，技术人员更关心约束与原因",
                 "第一版优先验证工作台与对话流，不追求复杂推理",
                 "会话已按项目归档，适合持续积累专题分析记录",

@@ -36,6 +36,16 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(sessions[0].name, "测试对话")
             self.assertEqual([message.role for message in messages], ["user", "assistant"])
 
+    def test_app_state_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "darkfactory.db"
+            storage = Storage(db_path=db_path)
+
+            self.assertIsNone(storage.get_state("last_session_id"))
+            storage.set_state("last_session_id", "42")
+
+            self.assertEqual(storage.get_state("last_session_id"), "42")
+
 
 if __name__ == "__main__":
     unittest.main()

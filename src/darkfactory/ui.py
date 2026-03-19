@@ -7,6 +7,10 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -75,6 +79,47 @@ class AssistantWorker(QThread):
         self.succeeded.emit(reply)
 
 
+class ProjectDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None, project: Project | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("项目设置" if project else "新建项目")
+        self.resize(420, 220)
+
+        self.name_input = QLineEdit(project.name if project else "")
+        self.plant_input = QLineEdit(project.plant if project else "")
+        self.unit_input = QLineEdit(project.unit if project else "")
+        self.expert_type_input = QComboBox()
+        self.expert_type_input.addItems(["热力专家", "汽机专家", "锅炉专家", "运行分析师"])
+        if project:
+            index = self.expert_type_input.findText(project.expert_type)
+            if index >= 0:
+                self.expert_type_input.setCurrentIndex(index)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        form = QFormLayout()
+        form.addRow("项目名称", self.name_input)
+        form.addRow("电厂", self.plant_input)
+        form.addRow("机组", self.unit_input)
+        form.addRow("专家类型", self.expert_type_input)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+    def values(self) -> dict[str, str]:
+        return {
+            "name": self.name_input.text().strip(),
+            "plant": self.plant_input.text().strip(),
+            "unit": self.unit_input.text().strip(),
+            "expert_type": self.expert_type_input.currentText().strip(),
+        }
+
+
 class MainWindow(QMainWindow):
     def __init__(self, storage: Storage, assistant: AssistantService) -> None:
         super().__init__()
@@ -96,6 +141,8 @@ class MainWindow(QMainWindow):
 
         self.project_info = QLabel("当前项目：-")
         self.session_info = QLabel("当前对话：-")
+        self.project_meta = QLabel("项目上下文：-")
+        self.project_meta.setWordWrap(True)
 
         self.message_list = QListWidget()
         self.message_list.setAlternatingRowColors(False)
@@ -158,6 +205,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.project_info)
         layout.addWidget(self.session_info)
+        layout.addWidget(self.project_meta)
         layout.addWidget(self.message_list, stretch=1)
 
         quick_row = QHBoxLayout()
@@ -182,10 +230,18 @@ class MainWindow(QMainWindow):
         create_session_action = QAction("新建对话", self)
         create_session_action.triggered.connect(self.create_session_for_current_project)
 
+        edit_project_action = QAction("编辑项目", self)
+        edit_project_action.triggered.connect(self.edit_current_project)
+
         menubar = self.menuBar()
         file_menu = menubar.addMenu("文件")
         file_menu.addAction(create_project_action)
         file_menu.addAction(create_session_action)
+        file_menu.addAction(edit_project_action)
+
+        self.statusBar().showMessage(
+            f"模式：{self.assistant.mode_label()} | 数据库：{self.storage.db_path}"
+        )
 
     def refresh_tree(self) -> None:
         previous_session_id = self.current_session.id if self.current_session else None
@@ -210,6 +266,13 @@ class MainWindow(QMainWindow):
         if self.current_session is not None:
             return
 
+        last_session_id = self.storage.get_state("last_session_id")
+        if last_session_id and last_session_id.isdigit():
+            session = self.storage.get_session(int(last_session_id))
+            if session is not None:
+                self.load_session(session.id)
+                return
+
         for project in self.storage.list_projects():
             sessions = self.storage.list_sessions(project.id)
             if sessions:
@@ -232,6 +295,7 @@ class MainWindow(QMainWindow):
                 self.current_project = project
                 self.project_info.setText(f"当前项目：{project.name}")
                 self.session_info.setText("当前对话：-")
+                self.project_meta.setText(self.format_project_meta(project))
 
     def load_session(self, session_id: int) -> None:
         session = self.storage.get_session(session_id)
@@ -243,12 +307,22 @@ class MainWindow(QMainWindow):
 
         self.current_project = project
         self.current_session = session
+        self.storage.set_state("last_session_id", str(session.id))
         self.project_info.setText(f"当前项目：{project.name}")
         self.session_info.setText(f"当前对话：{session.name}")
+        self.project_meta.setText(self.format_project_meta(project))
 
         self.message_list.clear()
         for message in self.storage.list_messages(session.id):
             self.append_message(message.role, message.content)
+
+    def format_project_meta(self, project: Project) -> str:
+        parts = [
+            f"电厂：{project.plant or '未设置'}",
+            f"机组：{project.unit or '未设置'}",
+            f"专家：{project.expert_type or '未设置'}",
+        ]
+        return "项目上下文：" + " | ".join(parts)
 
     def append_message(self, role: str, content: str) -> None:
         prefix = ROLE_LABELS.get(role, role)
@@ -261,11 +335,20 @@ class MainWindow(QMainWindow):
         self.message_list.scrollToBottom()
 
     def create_project(self) -> None:
-        name, accepted = QInputDialog.getText(self, "新建项目", "项目名称：", text="新项目")
-        if not accepted or not name.strip():
+        dialog = ProjectDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        if not values["name"]:
+            QMessageBox.information(self, "提示", "项目名称不能为空。")
             return
 
-        project_id = self.storage.create_project(name=name.strip())
+        project_id = self.storage.create_project(
+            name=values["name"],
+            plant=values["plant"],
+            unit=values["unit"],
+            expert_type=values["expert_type"] or "热力专家",
+        )
         session_id = self.storage.create_session(project_id, "默认对话")
         self.refresh_tree()
         self.load_session(session_id)
@@ -311,6 +394,9 @@ class MainWindow(QMainWindow):
             new_session_action = menu.addAction("新建对话")
             new_session_action.triggered.connect(lambda: self.create_session(ref.identifier))
 
+            edit_action = menu.addAction("编辑项目")
+            edit_action.triggered.connect(lambda: self.edit_project(ref.identifier))
+
             rename_action = menu.addAction("重命名项目")
             rename_action.triggered.connect(lambda: self.rename_project(ref.identifier))
 
@@ -335,6 +421,42 @@ class MainWindow(QMainWindow):
         self.storage.rename_project(project_id, name.strip())
         self.refresh_tree()
 
+    def edit_current_project(self) -> None:
+        if self.current_project is None:
+            QMessageBox.information(self, "提示", "请先选择项目。")
+            return
+        self.edit_project(self.current_project.id)
+
+    def edit_project(self, project_id: int) -> None:
+        project = self.storage.get_project(project_id)
+        if project is None:
+            return
+
+        dialog = ProjectDialog(self, project=project)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        if not values["name"]:
+            QMessageBox.information(self, "提示", "项目名称不能为空。")
+            return
+
+        self.storage.update_project(
+            project_id,
+            name=values["name"],
+            plant=values["plant"],
+            unit=values["unit"],
+            expert_type=values["expert_type"] or "热力专家",
+        )
+        self.refresh_tree()
+        if self.current_session is not None:
+            self.load_session(self.current_session.id)
+        elif self.current_project is not None and self.current_project.id == project_id:
+            updated_project = self.storage.get_project(project_id)
+            if updated_project is not None:
+                self.current_project = updated_project
+                self.project_info.setText(f"当前项目：{updated_project.name}")
+                self.project_meta.setText(self.format_project_meta(updated_project))
+
     def delete_project(self, project_id: int) -> None:
         result = QMessageBox.question(self, "删除项目", "确认删除该项目及其所有对话吗？")
         if result != QMessageBox.StandardButton.Yes:
@@ -346,6 +468,7 @@ class MainWindow(QMainWindow):
             self.message_list.clear()
             self.project_info.setText("当前项目：-")
             self.session_info.setText("当前对话：-")
+            self.project_meta.setText("项目上下文：-")
         self.refresh_tree()
         self.auto_select_initial_session()
 

@@ -59,6 +59,11 @@ class Storage:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
                 );
+
+                CREATE TABLE IF NOT EXISTS app_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 """
             )
 
@@ -119,6 +124,25 @@ class Storage:
             connection.execute(
                 "UPDATE projects SET name = ? WHERE id = ?",
                 (name, project_id),
+            )
+
+    def update_project(
+        self,
+        project_id: int,
+        *,
+        name: str,
+        plant: str,
+        unit: str,
+        expert_type: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE projects
+                SET name = ?, plant = ?, unit = ?, expert_type = ?
+                WHERE id = ?
+                """,
+                (name, plant, unit, expert_type, project_id),
             )
 
     def delete_project(self, project_id: int) -> None:
@@ -219,3 +243,22 @@ class Storage:
                 (session_id,),
             )
             return int(cursor.lastrowid)
+
+    def get_state(self, key: str) -> str | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM app_state WHERE key = ?",
+                (key,),
+            ).fetchone()
+        return str(row["value"]) if row else None
+
+    def set_state(self, key: str, value: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO app_state (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
