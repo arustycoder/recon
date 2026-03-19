@@ -8,9 +8,33 @@ from .models import Message, Project, Session
 
 
 class AssistantService:
+    def provider_name(self) -> str:
+        explicit = os.getenv("DARKFACTORY_LLM_PROVIDER", "").strip().lower()
+        if explicit in {"mock", "ollama", "openai_compatible", "http_backend"}:
+            return explicit
+
+        if os.getenv("DARKFACTORY_OLLAMA_MODEL", "").strip():
+            return "ollama"
+        if os.getenv("DARKFACTORY_OPENAI_BASE_URL", "").strip() and os.getenv(
+            "DARKFACTORY_OPENAI_MODEL", ""
+        ).strip():
+            return "openai_compatible"
+        if os.getenv("DARKFACTORY_API_URL", "").strip():
+            return "http_backend"
+        return "mock"
+
     def mode_label(self) -> str:
-        api_url = os.getenv("DARKFACTORY_API_URL", "").strip()
-        return f"HTTP: {api_url}" if api_url else "Mock"
+        provider = self.provider_name()
+        if provider == "ollama":
+            model = os.getenv("DARKFACTORY_OLLAMA_MODEL", "").strip() or "未设置模型"
+            return f"Local LLM (Ollama): {model}"
+        if provider == "openai_compatible":
+            model = os.getenv("DARKFACTORY_OPENAI_MODEL", "").strip() or "未设置模型"
+            return f"OpenAI-Compatible: {model}"
+        if provider == "http_backend":
+            api_url = os.getenv("DARKFACTORY_API_URL", "").strip()
+            return f"HTTP Backend: {api_url}"
+        return "Mock"
 
     def reply(
         self,
@@ -20,10 +44,31 @@ class AssistantService:
         recent_messages: Iterable[Message],
         user_message: str,
     ) -> str:
-        api_url = os.getenv("DARKFACTORY_API_URL", "").strip()
-        if api_url:
+        provider = self.provider_name()
+        if provider == "ollama":
+            return self._reply_via_openai_compatible(
+                base_url=os.getenv("DARKFACTORY_OLLAMA_URL", "").strip()
+                or "http://127.0.0.1:11434/v1",
+                api_key=os.getenv("DARKFACTORY_OLLAMA_API_KEY", "").strip() or "ollama",
+                model=os.getenv("DARKFACTORY_OLLAMA_MODEL", "").strip(),
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+            )
+        if provider == "openai_compatible":
+            return self._reply_via_openai_compatible(
+                base_url=os.getenv("DARKFACTORY_OPENAI_BASE_URL", "").strip(),
+                api_key=os.getenv("DARKFACTORY_OPENAI_API_KEY", "").strip(),
+                model=os.getenv("DARKFACTORY_OPENAI_MODEL", "").strip(),
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+            )
+        if provider == "http_backend":
             return self._reply_via_http(
-                api_url=api_url,
+                api_url=os.getenv("DARKFACTORY_API_URL", "").strip(),
                 project=project,
                 session=session,
                 recent_messages=recent_messages,
@@ -56,6 +101,104 @@ class AssistantService:
         if not reply:
             raise ValueError("HTTP assistant response did not contain 'reply'")
         return reply
+
+    def _reply_via_openai_compatible(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+    ) -> str:
+        if not base_url:
+            raise ValueError("OpenAI-compatible provider requires base_url")
+        if not model:
+            raise ValueError("OpenAI-compatible provider requires model")
+
+        import httpx
+
+        messages = self._build_provider_messages(
+            project=project,
+            session=session,
+            recent_messages=recent_messages,
+            user_message=user_message,
+        )
+
+        payload = {
+            "model": model,
+            "messages": messages,
+        }
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        endpoint = base_url.rstrip("/") + "/chat/completions"
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(endpoint, json=payload, headers=headers)
+            response.raise_for_status()
+        data = response.json()
+
+        choices = data.get("choices") or []
+        if not choices:
+            raise ValueError("OpenAI-compatible response did not contain choices")
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+
+        # Some compatible backends may return structured content arrays.
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text.strip())
+            if parts:
+                return "\n".join(parts)
+
+        raise ValueError("OpenAI-compatible response did not contain assistant text")
+
+    def _build_provider_messages(
+        self,
+        *,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+    ) -> list[dict[str, str]]:
+        recent_messages_list = list(recent_messages)
+        system_message = (
+            "你是电力能源运行分析助手。"
+            "请结合项目上下文回答，并尽量使用以下结构输出："
+            "【结论】【原因分析】【优化建议】【影响评估】。"
+        )
+        context_message = (
+            f"项目名称：{project.name}\n"
+            f"电厂：{project.plant or '未设置'}\n"
+            f"机组：{project.unit or '未设置'}\n"
+            f"专家类型：{project.expert_type or '未设置'}\n"
+            f"当前对话：{session.name}"
+        )
+
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_message},
+            {"role": "system", "content": context_message},
+        ]
+        for message in recent_messages_list:
+            if message.role not in {"user", "assistant"}:
+                continue
+            messages.append({"role": message.role, "content": message.content})
+        if not recent_messages_list:
+            messages.append({"role": "user", "content": user_message})
+        elif messages[-1]["role"] != "user" or messages[-1]["content"] != user_message:
+            messages.append({"role": "user", "content": user_message})
+        return messages
 
     def _reply_via_mock(self, *, project: Project, user_message: str) -> str:
         prompt = user_message.strip()

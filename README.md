@@ -33,6 +33,22 @@ Behavior:
 
 - default mode uses a built-in mock assistant
 - if `DARKFACTORY_API_URL` is set, the app will POST chat requests to that endpoint
+- if local or remote model provider variables are set, the app can talk directly to those providers
+
+Provider examples:
+
+```bash
+# local ollama
+export DARKFACTORY_LLM_PROVIDER=ollama
+export DARKFACTORY_OLLAMA_URL=http://127.0.0.1:11434/v1
+export DARKFACTORY_OLLAMA_MODEL=qwen2.5:latest
+
+# openai-compatible backend
+export DARKFACTORY_LLM_PROVIDER=openai_compatible
+export DARKFACTORY_OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export DARKFACTORY_OPENAI_API_KEY=dummy-or-real-key
+export DARKFACTORY_OPENAI_MODEL=my-model
+```
 
 Suggested next step:
 
