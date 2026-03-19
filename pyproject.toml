@@ -9,6 +9,21 @@ dependencies = [
     "httpx>=0.28",
 ]
 
+[project.scripts]
+darkfactory = "darkfactory.app:main"
+
+[dependency-groups]
+dev = []
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+package = true
