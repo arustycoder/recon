@@ -75,6 +75,26 @@ class AssistantServiceTests(unittest.TestCase):
         settings = ProviderSettings(provider="openai_compatible", openai_model="demo-model")
         self.assertEqual(self.service.target_label(settings), "demo-model")
 
+    def test_extract_openai_stream_text_supports_string_delta(self) -> None:
+        text = self.service._extract_openai_stream_text(
+            {"choices": [{"delta": {"content": "hello"}}]}
+        )
+        self.assertEqual(text, "hello")
+
+    def test_stream_reply_for_mock_yields_incremental_segments(self) -> None:
+        chunks = list(
+            self.service.stream_reply(
+                project=self.project,
+                session=self.session,
+                recent_messages=[],
+                user_message="请分析蒸汽不足",
+                settings=ProviderSettings(provider="mock"),
+            )
+        )
+
+        self.assertGreater(len(chunks), 1)
+        self.assertIn("【结论】", "".join(chunks))
+
     def test_build_provider_messages_keeps_project_context(self) -> None:
         messages = self.service._build_provider_messages(
             project=self.project,

@@ -14,6 +14,7 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - basic message metadata display
 - visible in-flight feedback after the user sends a message
 - a slow-request notice when the model backend takes too long to respond
+- streamed assistant text updates when the provider supports incremental output
 
 ### Excluded
 
@@ -38,6 +39,7 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - preserve multi-line structured content
 - insert a temporary assistant placeholder immediately after send
 - replace the placeholder with the real reply or an error message
+- update the same assistant card progressively during streaming
 
 ### Context Area
 

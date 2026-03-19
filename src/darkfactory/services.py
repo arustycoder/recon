@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from .config import derive_http_health_url, provider_settings_from_env
 from .models import Message, Project, ProviderSettings, Session
@@ -70,11 +71,30 @@ class AssistantService:
         user_message: str,
         settings: ProviderSettings | None = None,
     ) -> str:
+        return "".join(
+            self.stream_reply(
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                settings=settings,
+            )
+        )
+
+    def stream_reply(
+        self,
+        *,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+        settings: ProviderSettings | None = None,
+    ) -> Iterator[str]:
         config = settings or self.current_settings()
         provider = self.provider_name(config)
         timeout = float(self.request_timeout_seconds(config))
         if provider == "ollama":
-            return self._reply_via_openai_compatible(
+            yield from self._stream_via_openai_compatible(
                 base_url=config.ollama_url or "http://127.0.0.1:11434/v1",
                 api_key=config.ollama_api_key or "ollama",
                 model=config.ollama_model,
@@ -84,8 +104,9 @@ class AssistantService:
                 user_message=user_message,
                 timeout=timeout,
             )
+            return
         if provider == "openai_compatible":
-            return self._reply_via_openai_compatible(
+            yield from self._stream_via_openai_compatible(
                 base_url=config.openai_base_url,
                 api_key=config.openai_api_key,
                 model=config.openai_model,
@@ -95,8 +116,9 @@ class AssistantService:
                 user_message=user_message,
                 timeout=timeout,
             )
+            return
         if provider == "http_backend":
-            return self._reply_via_http(
+            yield self._reply_via_http(
                 api_url=config.api_url,
                 project=project,
                 session=session,
@@ -104,7 +126,8 @@ class AssistantService:
                 user_message=user_message,
                 timeout=timeout,
             )
-        return self._reply_via_mock(project=project, user_message=user_message)
+            return
+        yield from self._stream_via_mock(project=project, user_message=user_message)
 
     def health_check(self, settings: ProviderSettings | None = None) -> str:
         config = settings or self.current_settings()
@@ -187,6 +210,36 @@ class AssistantService:
         if not model:
             raise ValueError("OpenAI-compatible provider requires model")
 
+        return "".join(
+            self._stream_via_openai_compatible(
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+            )
+        )
+
+    def _stream_via_openai_compatible(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+        timeout: float,
+    ) -> Iterator[str]:
+        if not base_url:
+            raise ValueError("OpenAI-compatible provider requires base_url")
+        if not model:
+            raise ValueError("OpenAI-compatible provider requires model")
+
         import httpx
 
         messages = self._build_provider_messages(
@@ -199,6 +252,7 @@ class AssistantService:
         payload = {
             "model": model,
             "messages": messages,
+            "stream": True,
         }
 
         headers = {"Content-Type": "application/json"}
@@ -206,14 +260,65 @@ class AssistantService:
             headers["Authorization"] = f"Bearer {api_key}"
 
         endpoint = base_url.rstrip("/") + "/chat/completions"
+        collected_parts: list[str] = []
         with httpx.Client(timeout=timeout) as client:
-            response = client.post(endpoint, json=payload, headers=headers)
-            response.raise_for_status()
-        data = response.json()
+            with client.stream("POST", endpoint, json=payload, headers=headers) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    stripped = line.strip()
+                    if not stripped.startswith("data:"):
+                        continue
+                    data_line = stripped[5:].strip()
+                    if data_line == "[DONE]":
+                        break
+                    try:
+                        chunk_payload = json.loads(data_line)
+                    except json.JSONDecodeError:
+                        continue
+                    text = self._extract_openai_stream_text(chunk_payload)
+                    if text:
+                        collected_parts.append(text)
+                        yield text
 
+        if collected_parts:
+            return
+
+        fallback_payload = {
+            "model": model,
+            "messages": messages,
+        }
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(endpoint, json=fallback_payload, headers=headers)
+            response.raise_for_status()
+        text = self._extract_openai_response_text(response.json())
+        if not text:
+            raise ValueError("OpenAI-compatible response did not contain assistant text")
+        yield text
+
+    def _extract_openai_stream_text(self, data: dict) -> str:
         choices = data.get("choices") or []
         if not choices:
-            raise ValueError("OpenAI-compatible response did not contain choices")
+            return ""
+        delta = choices[0].get("delta") or {}
+        content = delta.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "".join(parts)
+        return ""
+
+    def _extract_openai_response_text(self, data: dict) -> str:
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
         message = choices[0].get("message") or {}
         content = message.get("content")
 
@@ -229,8 +334,7 @@ class AssistantService:
                         parts.append(text.strip())
             if parts:
                 return "\n".join(parts)
-
-        raise ValueError("OpenAI-compatible response did not contain assistant text")
+        return ""
 
     def _build_provider_messages(
         self,
@@ -328,3 +432,11 @@ class AssistantService:
             f"【优化建议】\n{actions_text}\n\n"
             f"【影响评估】\n{impact}"
         )
+
+    def _stream_via_mock(self, *, project: Project, user_message: str) -> Iterator[str]:
+        reply = self._reply_via_mock(project=project, user_message=user_message)
+        segments = reply.split("\n\n")
+        for index, segment in enumerate(segments):
+            if index > 0:
+                yield "\n\n"
+            yield segment

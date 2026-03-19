@@ -20,7 +20,13 @@ from PySide6.QtWidgets import QLabel
 from darkfactory.models import ProviderSettings
 from darkfactory.services import AssistantService
 from darkfactory.storage import Storage
-from darkfactory.ui import MainWindow, RequestContext, WorkerResult, create_application
+from darkfactory.ui import (
+    MainWindow,
+    RequestContext,
+    RequestLogDialog,
+    WorkerResult,
+    create_application,
+)
 
 
 class MainWindowTests(unittest.TestCase):
@@ -120,6 +126,17 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(session.name, "蒸汽不足分析")
         self.assertEqual(session.summary, "蒸汽不足分析")
 
+    def test_stream_update_replaces_pending_message_body(self) -> None:
+        self.assertIsNotNone(self.window.current_session)
+        session_id = self.window.current_session.id
+        request_id = self.window.next_request_id()
+
+        self.window.start_pending_response(request_id, session_id)
+        self.window.on_assistant_stream(request_id, session_id, "第一段回复")
+
+        self.assertIn("第一段回复", self.message_body_text(self.window.message_list.count() - 1))
+        self.assertIn("正在接收回复", self.window.statusBar().currentMessage())
+
     def test_cancel_active_request_writes_cancel_message_and_log(self) -> None:
         self.assertIsNotNone(self.window.current_session)
         session_id = self.window.current_session.id
@@ -140,6 +157,22 @@ class MainWindowTests(unittest.TestCase):
         self.assertIn("已取消", messages[-1].content)
         self.assertEqual(logs[0].status, "canceled")
         self.assertFalse(self.window.is_busy)
+
+    def test_request_log_dialog_shows_latest_logs(self) -> None:
+        self.assertIsNotNone(self.window.current_session)
+        self.storage.add_request_log(
+            session_id=self.window.current_session.id,
+            provider="mock",
+            model="mock",
+            status="success",
+            latency_ms=33,
+            detail="",
+        )
+
+        dialog = RequestLogDialog(self.storage)
+        self.assertEqual(dialog.log_tree.topLevelItemCount(), 1)
+        self.assertEqual(dialog.log_tree.topLevelItem(0).text(2), "mock")
+        dialog.close()
 
 
 if __name__ == "__main__":

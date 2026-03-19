@@ -43,8 +43,10 @@ Desktop features:
 - connection test before saving provider settings
 - configurable request timeout
 - visible waiting and slow-request states in chat
+- streamed assistant output when the provider supports it
 - `停止等待` action for long-running model calls
 - local request logs stored in the SQLite database
+- request log viewer under `工具 -> 请求日志`
 - automatic session titling for generic new sessions
 
 Provider examples:
@@ -89,3 +91,4 @@ Docs:
 - `docs/80-Settings-And-Operations.md`
 - `docs/90-Session-Summaries.md`
 - `docs/100-Packaging-And-Installer.md`
+- `docs/110-Request-Logs-And-Streaming.md`

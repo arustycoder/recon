@@ -73,6 +73,7 @@ class RequestContext:
 class AssistantWorker(QThread):
     succeeded = Signal(object)
     failed = Signal(object)
+    streamed = Signal(str)
 
     def __init__(
         self,
@@ -94,13 +95,18 @@ class AssistantWorker(QThread):
         started_at = perf_counter()
         provider = self._service.provider_name()
         target = self._service.target_label()
+        accumulated_parts: list[str] = []
         try:
-            reply = self._service.reply(
+            for chunk in self._service.stream_reply(
                 project=self._project,
                 session=self._session,
                 recent_messages=self._recent_messages,
                 user_message=self._user_message,
-            )
+            ):
+                if not chunk:
+                    continue
+                accumulated_parts.append(chunk)
+                self.streamed.emit("".join(accumulated_parts))
         except Exception as exc:  # pragma: no cover - Qt thread path
             self.failed.emit(
                 WorkerResult(
@@ -116,7 +122,7 @@ class AssistantWorker(QThread):
                 provider=provider,
                 target=target,
                 latency_ms=int((perf_counter() - started_at) * 1000),
-                content=reply,
+                content="".join(accumulated_parts),
             )
         )
 
@@ -399,6 +405,60 @@ class SettingsDialog(QDialog):
         self.connection_status.setStyleSheet("color: #b42318;")
 
 
+class RequestLogDialog(QDialog):
+    def __init__(self, storage: Storage, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._storage = storage
+        self.setWindowTitle("请求日志")
+        self.resize(900, 460)
+
+        self.log_tree = QTreeWidget()
+        self.log_tree.setRootIsDecorated(False)
+        self.log_tree.setAlternatingRowColors(True)
+        self.log_tree.setHeaderLabels(
+            ["时间", "会话", "Provider", "目标", "状态", "耗时(ms)", "详情"]
+        )
+
+        refresh_button = QPushButton("刷新")
+        refresh_button.clicked.connect(self.populate)
+
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(self.accept)
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(refresh_button)
+        button_row.addStretch(1)
+        button_row.addWidget(close_button)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.log_tree)
+        layout.addLayout(button_row)
+
+        self.populate()
+
+    def populate(self) -> None:
+        self.log_tree.clear()
+        for entry in self._storage.list_request_logs(limit=200):
+            session_label = "-"
+            if entry.session_id is not None:
+                session = self._storage.get_session(entry.session_id)
+                session_label = session.name if session is not None else str(entry.session_id)
+            item = QTreeWidgetItem(
+                [
+                    entry.created_at,
+                    session_label,
+                    entry.provider,
+                    entry.model,
+                    entry.status,
+                    str(entry.latency_ms),
+                    entry.detail or "-",
+                ]
+            )
+            self.log_tree.addTopLevelItem(item)
+        for column in range(self.log_tree.columnCount() - 1):
+            self.log_tree.resizeColumnToContents(column)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, storage: Storage, assistant: AssistantService) -> None:
         super().__init__()
@@ -417,6 +477,7 @@ class MainWindow(QMainWindow):
         self.pending_session_id: int | None = None
         self.pending_message_item: QListWidgetItem | None = None
         self.pending_message_text = "正在思考，请稍候..."
+        self.pending_message_content = self.pending_message_text
         self.closing_after_requests = False
 
         self.slow_response_timer = QTimer(self)
@@ -565,6 +626,9 @@ class MainWindow(QMainWindow):
         settings_action = QAction("模型设置", self)
         settings_action.triggered.connect(self.open_settings_dialog)
 
+        logs_action = QAction("请求日志", self)
+        logs_action.triggered.connect(self.open_request_log_dialog)
+
         menubar = self.menuBar()
         file_menu = menubar.addMenu("文件")
         file_menu.addAction(create_project_action)
@@ -573,6 +637,7 @@ class MainWindow(QMainWindow):
 
         tools_menu = menubar.addMenu("工具")
         tools_menu.addAction(settings_action)
+        tools_menu.addAction(logs_action)
 
         self._set_status_message()
 
@@ -657,7 +722,7 @@ class MainWindow(QMainWindow):
         if self.pending_session_id == session.id and self.pending_message_item is None:
             self.pending_message_item = self.append_message(
                 "assistant",
-                self.pending_message_text,
+                self.pending_message_content,
                 timestamp="处理中",
             )
         self.update_message_stack()
@@ -750,10 +815,11 @@ class MainWindow(QMainWindow):
         self.active_request_id = request_id
         self.pending_request_id = request_id
         self.pending_session_id = session_id
+        self.pending_message_content = self.pending_message_text
         if self.current_session is not None and self.current_session.id == session_id:
             self.pending_message_item = self.append_message(
                 "assistant",
-                self.pending_message_text,
+                self.pending_message_content,
                 timestamp="处理中",
             )
         else:
@@ -770,6 +836,7 @@ class MainWindow(QMainWindow):
         self.pending_message_item = None
         self.pending_request_id = None
         self.pending_session_id = None
+        self.pending_message_content = self.pending_message_text
         if self.active_request_id == request_id:
             self.active_request_id = None
         self._set_status_message()
@@ -785,7 +852,34 @@ class MainWindow(QMainWindow):
             content="请求耗时较长，仍在等待模型返回，请稍候...",
             timestamp="处理中",
         )
+        self.pending_message_content = "请求耗时较长，仍在等待模型返回，请稍候..."
         self._set_status_message("请求耗时较长")
+
+    def ensure_pending_message_visible(self, session_id: int) -> None:
+        if self.current_session is None or self.current_session.id != session_id:
+            return
+        if self.pending_message_item is None:
+            self.pending_message_item = self.append_message(
+                "assistant",
+                self.pending_message_content,
+                timestamp="处理中",
+            )
+
+    def on_assistant_stream(self, request_id: int, session_id: int, content: str) -> None:
+        if request_id in self.canceled_request_ids:
+            return
+        if self.pending_request_id != request_id:
+            return
+        self.pending_message_content = content or self.pending_message_text
+        self.ensure_pending_message_visible(session_id)
+        if self.pending_message_item is not None:
+            self.update_message_item(
+                self.pending_message_item,
+                role="assistant",
+                content=self.pending_message_content,
+                timestamp="生成中",
+            )
+        self._set_status_message("正在接收回复")
 
     def summarize_session_title(self, message: str) -> str:
         compact = " ".join(part for part in message.replace("\n", " ").split() if part).strip()
@@ -834,6 +928,10 @@ class MainWindow(QMainWindow):
         self.storage.save_provider_settings(settings)
         self.assistant.update_settings(settings)
         self._set_status_message("设置已保存")
+
+    def open_request_log_dialog(self) -> None:
+        dialog = RequestLogDialog(self.storage, self)
+        dialog.exec()
 
     def create_project(self) -> None:
         dialog = ProjectDialog(self)
@@ -1054,6 +1152,11 @@ class MainWindow(QMainWindow):
         )
         self.worker = worker
         self.workers[request_id] = worker
+        worker.streamed.connect(
+            lambda content, request_session_id=session_id, current_request_id=request_id: (
+                self.on_assistant_stream(current_request_id, request_session_id, content)
+            )
+        )
         worker.succeeded.connect(
             lambda result, request_session_id=session_id, current_request_id=request_id: (
                 self.on_assistant_reply(current_request_id, request_session_id, result)

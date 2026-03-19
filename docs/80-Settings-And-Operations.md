@@ -13,6 +13,7 @@ Make DarkFactory operable by non-developer users without editing shell variables
 - request timeout configuration
 - provider connection health check action
 - local request logging with latency, status, and error detail
+- request log viewer UI for diagnostics
 - cancel-wait interaction for long-running requests
 
 ### Excluded
@@ -52,6 +53,8 @@ Make DarkFactory operable by non-developer users without editing shell variables
   - status
   - latency
   - error detail when present
+- expose recent request logs in a simple desktop viewer
+- keep the first viewer read-only and operator-focused
 
 ### Cancel Behavior
 
