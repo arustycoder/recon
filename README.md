@@ -6,7 +6,8 @@ Current status:
 
 - Git repository initialized
 - Base project folders created
-- Product and engineering plan saved in `plan.md`
+- Product and engineering plan saved in `docs/00-Plan.md`
+- Repository conventions saved in `AGENTS.md`
 
 Suggested next step:
 
