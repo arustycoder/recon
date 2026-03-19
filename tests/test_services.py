@@ -147,6 +147,38 @@ class AssistantServiceTests(unittest.TestCase):
         self.assertIn("/models", client.get.call_args.kwargs["url"] if "url" in client.get.call_args.kwargs else client.get.call_args.args[0])
         self.assertIn("Connected successfully", message)
 
+    def test_gateway_capabilities_derive_http_backend_urls(self) -> None:
+        settings = ProviderSettings(
+            provider="http_backend",
+            api_url="http://localhost:8000/api/chat",
+        )
+
+        capabilities = self.service.gateway_capabilities(settings)
+
+        self.assertEqual(capabilities["stream_url"], "http://localhost:8000/api/chat/stream")
+        self.assertEqual(capabilities["health_url"], "http://localhost:8000/api/health")
+        self.assertEqual(capabilities["providers_url"], "http://localhost:8000/api/providers")
+        self.assertIn("{request_id}", capabilities["cancel_url_template"])
+
+    def test_cancel_request_posts_to_derived_gateway_cancel_url(self) -> None:
+        settings = ProviderSettings(
+            provider="http_backend",
+            api_url="http://localhost:8000/api/chat",
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        client = Mock()
+        client.post.return_value = response
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=client)
+        context_manager.__exit__ = Mock(return_value=None)
+
+        with patch("httpx.Client", return_value=context_manager):
+            cancel_url = self.service.cancel_request("req_123", settings)
+
+        self.assertEqual(cancel_url, "http://localhost:8000/api/chat/req_123/cancel")
+        client.post.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

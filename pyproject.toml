@@ -7,10 +7,13 @@ requires-python = ">=3.12"
 dependencies = [
     "PySide6>=6.8",
     "httpx>=0.28",
+    "fastapi>=0.116",
+    "uvicorn>=0.35",
 ]
 
 [project.scripts]
 darkfactory = "darkfactory.app:main"
+darkfactory-gateway = "darkfactory_gateway.__main__:main"
 
 [dependency-groups]
 dev = [

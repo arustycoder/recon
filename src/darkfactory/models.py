@@ -42,6 +42,9 @@ class ProviderSettings:
     openai_model: str = ""
     api_url: str = ""
     api_health_url: str = ""
+    api_stream_url: str = ""
+    api_cancel_url_template: str = ""
+    api_providers_url: str = ""
     request_timeout_seconds: int = 60
 
 

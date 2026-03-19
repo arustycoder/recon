@@ -40,6 +40,11 @@ The app should select the provider using the following order:
 
 - `DARKFACTORY_LLM_PROVIDER=http_backend`
 - `DARKFACTORY_API_URL`
+- optional reserved fields for future gateway deployment:
+  - `DARKFACTORY_API_STREAM_URL`
+  - `DARKFACTORY_API_CANCEL_URL_TEMPLATE`
+  - `DARKFACTORY_API_HEALTH_URL`
+  - `DARKFACTORY_API_PROVIDERS_URL`
 
 ### Mock
 
@@ -56,6 +61,14 @@ provider-specific request
     ↓
 normalized reply string
 ```
+
+For gateway-backed HTTP deployments, the reserved endpoint family is:
+
+- `POST /api/chat`
+- `POST /api/chat/stream`
+- `POST /api/chat/{request_id}/cancel`
+- `GET /api/health`
+- `GET /api/providers`
 
 ## Response Normalization
 

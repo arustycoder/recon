@@ -29,6 +29,10 @@ Let DarkFactory run with provider configuration from a local `.env` file, withou
 - `DARKFACTORY_OPENAI_API_KEY`
 - `DARKFACTORY_OPENAI_MODEL`
 - `DARKFACTORY_API_URL`
+- `DARKFACTORY_API_STREAM_URL`
+- `DARKFACTORY_API_CANCEL_URL_TEMPLATE`
+- `DARKFACTORY_API_HEALTH_URL`
+- `DARKFACTORY_API_PROVIDERS_URL`
 
 ### Compatible OpenAI-Like Names
 

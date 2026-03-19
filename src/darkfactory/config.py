@@ -16,6 +16,9 @@ DEFAULT_PROVIDER_KEYS = (
     "openai_model",
     "api_url",
     "api_health_url",
+    "api_stream_url",
+    "api_cancel_url_template",
+    "api_providers_url",
     "request_timeout_seconds",
 )
 
@@ -68,6 +71,9 @@ def provider_settings_from_env() -> ProviderSettings:
         ),
         api_url=os.getenv("DARKFACTORY_API_URL", "").strip(),
         api_health_url=os.getenv("DARKFACTORY_API_HEALTH_URL", "").strip(),
+        api_stream_url=os.getenv("DARKFACTORY_API_STREAM_URL", "").strip(),
+        api_cancel_url_template=os.getenv("DARKFACTORY_API_CANCEL_URL_TEMPLATE", "").strip(),
+        api_providers_url=os.getenv("DARKFACTORY_API_PROVIDERS_URL", "").strip(),
         request_timeout_seconds=timeout_value,
     )
 
@@ -85,3 +91,58 @@ def derive_http_health_url(api_url: str, explicit_health_url: str = "") -> str:
     if base.endswith("/api/chat"):
         return base[: -len("/api/chat")] + "/api/health"
     return base + "/health"
+
+
+def derive_http_stream_url(api_url: str, explicit_stream_url: str = "") -> str:
+    explicit = explicit_stream_url.strip()
+    if explicit:
+        return explicit
+
+    base = api_url.strip().rstrip("/")
+    if not base:
+        return ""
+    if base.endswith("/chat"):
+        return base + "/stream"
+    if base.endswith("/api/chat"):
+        return base + "/stream"
+    return base + "/stream"
+
+
+def derive_http_cancel_url(
+    api_url: str,
+    request_id: str,
+    explicit_cancel_url_template: str = "",
+) -> str:
+    request = request_id.strip()
+    if not request:
+        return ""
+
+    template = explicit_cancel_url_template.strip()
+    if template:
+        if "{request_id}" in template:
+            return template.replace("{request_id}", request)
+        return template.rstrip("/") + "/" + request
+
+    base = api_url.strip().rstrip("/")
+    if not base:
+        return ""
+    if base.endswith("/chat"):
+        return f"{base}/{request}/cancel"
+    if base.endswith("/api/chat"):
+        return f"{base}/{request}/cancel"
+    return f"{base}/{request}/cancel"
+
+
+def derive_http_providers_url(api_url: str, explicit_providers_url: str = "") -> str:
+    explicit = explicit_providers_url.strip()
+    if explicit:
+        return explicit
+
+    base = api_url.strip().rstrip("/")
+    if not base:
+        return ""
+    if base.endswith("/chat"):
+        return base[: -len("/chat")] + "/providers"
+    if base.endswith("/api/chat"):
+        return base[: -len("/api/chat")] + "/api/providers"
+    return base + "/providers"

@@ -33,7 +33,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .config import provider_settings_from_env
+from .config import (
+    derive_http_cancel_url,
+    derive_http_health_url,
+    derive_http_providers_url,
+    derive_http_stream_url,
+    provider_settings_from_env,
+)
 from .models import Message, Project, ProviderSettings, Session
 from .services import AssistantService
 from .storage import Storage
@@ -311,6 +317,9 @@ class SettingsDialog(QDialog):
 
         self.api_url_input = QLineEdit(settings.api_url)
         self.api_health_url_input = QLineEdit(settings.api_health_url)
+        self.api_stream_url_input = QLineEdit(settings.api_stream_url)
+        self.api_cancel_url_template_input = QLineEdit(settings.api_cancel_url_template)
+        self.api_providers_url_input = QLineEdit(settings.api_providers_url)
 
         self.provider_stack.addWidget(self._build_mock_page())
         self.provider_stack.addWidget(self._build_ollama_page())
@@ -375,8 +384,11 @@ class SettingsDialog(QDialog):
     def _build_http_page(self) -> QWidget:
         widget = QWidget()
         form = QFormLayout(widget)
-        form.addRow("API URL", self.api_url_input)
+        form.addRow("Chat URL", self.api_url_input)
+        form.addRow("Stream URL", self.api_stream_url_input)
         form.addRow("Health URL", self.api_health_url_input)
+        form.addRow("Cancel URL Template", self.api_cancel_url_template_input)
+        form.addRow("Providers URL", self.api_providers_url_input)
         return widget
 
     def on_provider_changed(self) -> None:
@@ -403,6 +415,9 @@ class SettingsDialog(QDialog):
             openai_model=self.openai_model_input.text().strip(),
             api_url=self.api_url_input.text().strip(),
             api_health_url=self.api_health_url_input.text().strip(),
+            api_stream_url=self.api_stream_url_input.text().strip(),
+            api_cancel_url_template=self.api_cancel_url_template_input.text().strip(),
+            api_providers_url=self.api_providers_url_input.text().strip(),
             request_timeout_seconds=int(self.timeout_input.value()),
         )
 

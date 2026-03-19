@@ -58,6 +58,8 @@ class StorageTests(unittest.TestCase):
                 openai_api_key="secret",
                 openai_model="demo-model",
                 request_timeout_seconds=45,
+                api_stream_url="http://localhost:8000/api/chat/stream",
+                api_cancel_url_template="http://localhost:8000/api/chat/{request_id}/cancel",
             )
             storage.save_provider_settings(settings)
             loaded = storage.get_provider_settings()
@@ -66,6 +68,8 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(loaded.openai_base_url, "http://localhost:8000/v1")
             self.assertEqual(loaded.openai_model, "demo-model")
             self.assertEqual(loaded.request_timeout_seconds, 45)
+            self.assertEqual(loaded.api_stream_url, "http://localhost:8000/api/chat/stream")
+            self.assertIn("{request_id}", loaded.api_cancel_url_template)
 
     def test_request_log_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

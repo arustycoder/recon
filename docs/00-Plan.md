@@ -36,6 +36,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Local request logging and latency tracking
 - Request cancel interaction for long-running model calls
 - Automatic session title and summary generation
+- Gateway / service-layer protocol reserved for future deployment
 - Windows installer packaging requirement
 
 ### Excluded
@@ -64,6 +65,7 @@ Build a project-based conversational workbench for energy operations analysis:
 
 - `httpx` for backend requests
 - OpenAI-compatible request flow for local and remote model providers
+- gateway-friendly HTTP protocol for `chat / stream / cancel / health`
 
 ### Packaging
 
@@ -85,7 +87,7 @@ Desktop App
    ↓
 Local Service Layer
    ↓
-Local LLM / Your Backend API
+Local LLM / Gateway / Your Backend API
    ↓
 Model / Business Logic / Data Source
 ```
@@ -179,6 +181,7 @@ Model / Business Logic / Data Source
 - Add request timeout and error handling
 - Add request cancel interaction for long-running calls
 - Render structured assistant results
+- Reserve gateway protocol endpoints for future server-side cancellation and orchestration
 
 ### Phase 5: Domainization
 

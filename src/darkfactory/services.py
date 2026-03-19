@@ -4,7 +4,13 @@ import json
 from dataclasses import asdict
 from typing import Iterable, Iterator
 
-from .config import derive_http_health_url, provider_settings_from_env
+from .config import (
+    derive_http_cancel_url,
+    derive_http_health_url,
+    derive_http_providers_url,
+    derive_http_stream_url,
+    provider_settings_from_env,
+)
 from .models import Message, Project, ProviderSettings, ResponseMetrics, Session
 
 
@@ -172,6 +178,44 @@ class AssistantService:
                 response.raise_for_status()
             return f"Connected successfully: {health_url}"
         raise ValueError(f"Unsupported provider: {provider}")
+
+    def gateway_capabilities(self, settings: ProviderSettings | None = None) -> dict[str, str]:
+        config = settings or self.current_settings()
+        return {
+            "chat_url": config.api_url,
+            "stream_url": derive_http_stream_url(config.api_url, config.api_stream_url),
+            "health_url": derive_http_health_url(config.api_url, config.api_health_url),
+            "providers_url": derive_http_providers_url(
+                config.api_url,
+                config.api_providers_url,
+            ),
+            "cancel_url_template": (
+                config.api_cancel_url_template.strip()
+                or derive_http_cancel_url(config.api_url, "{request_id}")
+            ),
+        }
+
+    def cancel_request(self, request_id: str, settings: ProviderSettings | None = None) -> str:
+        config = settings or self.current_settings()
+        provider = self.provider_name(config)
+        if provider != "http_backend":
+            raise ValueError("Server-side cancel is currently reserved for http_backend")
+
+        cancel_url = derive_http_cancel_url(
+            config.api_url,
+            request_id,
+            config.api_cancel_url_template,
+        )
+        if not cancel_url:
+            raise ValueError("HTTP backend cancel URL is not configured")
+
+        import httpx
+
+        timeout = min(10.0, float(self.request_timeout_seconds(config)))
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.post(cancel_url, json={"request_id": request_id})
+            response.raise_for_status()
+        return cancel_url
 
     def _reply_via_http(
         self,

@@ -31,6 +31,10 @@
 - When a major feature changes materially, update its matching document.
 - If a feature supersedes an older design, revise the existing doc instead of creating duplicate documents unless versioning is necessary.
 
+### Git Workflow
+
+- When making commits for this repository, push to the tracked remote immediately after each successful commit unless the user explicitly says not to push yet.
+
 ### Workspace Structure
 
 - Python application code lives under `src/darkfactory/`.

@@ -24,6 +24,12 @@ uv sync
 uv run python main.py
 ```
 
+Run gateway locally:
+
+```bash
+uv run darkfactory-gateway
+```
+
 Run tests:
 
 ```bash
@@ -48,6 +54,7 @@ Desktop features:
 - local request logs stored in the SQLite database
 - request log viewer under `工具 -> 请求日志`
 - automatic session titling for generic new sessions
+- HTTP backend settings already reserve gateway URLs for `chat / stream / cancel / health / providers`
 
 Provider examples:
 
@@ -92,6 +99,8 @@ Docs:
 - `docs/90-Session-Summaries.md`
 - `docs/100-Packaging-And-Installer.md`
 - `docs/110-Request-Logs-And-Streaming.md`
+- `docs/120-Gateway-and-Service-Layer.md`
+- `docs/130-Gateway-Implementation.md`
 
 Provider comparison:
 
