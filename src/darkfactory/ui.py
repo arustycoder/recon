@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QFormLayout,
     QHBoxLayout,
     QInputDialog,
@@ -21,7 +22,9 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -77,6 +80,67 @@ class AssistantWorker(QThread):
             self.failed.emit(str(exc))
             return
         self.succeeded.emit(reply)
+
+
+class MessageCard(QWidget):
+    def __init__(self, *, role: str, content: str, timestamp: str = "刚刚") -> None:
+        super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        outer_layout = QHBoxLayout(self)
+        outer_layout.setContentsMargins(6, 2, 6, 2)
+
+        bubble = QFrame()
+        bubble.setObjectName(f"message-card-{role}")
+        bubble.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        bubble.setMaximumWidth(720)
+
+        bubble_layout = QVBoxLayout(bubble)
+        bubble_layout.setContentsMargins(12, 10, 12, 10)
+        bubble_layout.setSpacing(6)
+
+        title = QLabel(f"{ROLE_LABELS.get(role, role)}  {timestamp}")
+        title.setObjectName("message-card-title")
+
+        body = QLabel(content)
+        body.setWordWrap(True)
+        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        body.setObjectName("message-card-body")
+
+        bubble_layout.addWidget(title)
+        bubble_layout.addWidget(body)
+
+        if role == "user":
+            outer_layout.addStretch(1)
+            outer_layout.addWidget(bubble)
+        else:
+            outer_layout.addWidget(bubble)
+            outer_layout.addStretch(1)
+
+        self.setStyleSheet(
+            """
+            QLabel#message-card-title {
+                color: #5f6b7a;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QLabel#message-card-body {
+                color: #1f2933;
+                font-size: 13px;
+                line-height: 1.35;
+            }
+            QFrame#message-card-user {
+                background: #dbeafe;
+                border: 1px solid #93c5fd;
+                border-radius: 10px;
+            }
+            QFrame#message-card-assistant {
+                background: #f3f4f6;
+                border: 1px solid #d1d5db;
+                border-radius: 10px;
+            }
+            """
+        )
 
 
 class ProjectDialog(QDialog):
@@ -146,6 +210,14 @@ class MainWindow(QMainWindow):
 
         self.message_list = QListWidget()
         self.message_list.setAlternatingRowColors(False)
+        self.message_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.message_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.message_list.setSpacing(6)
+
+        self.empty_state = self._build_empty_state()
+        self.message_stack = QStackedWidget()
+        self.message_stack.addWidget(self.empty_state)
+        self.message_stack.addWidget(self.message_list)
 
         self.quick_buttons: list[QPushButton] = []
         self.input_line = QLineEdit()
@@ -165,6 +237,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self.refresh_tree()
         self.auto_select_initial_session()
+        self.update_interaction_state()
 
     def _build_ui(self) -> None:
         container = QWidget()
@@ -206,7 +279,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.project_info)
         layout.addWidget(self.session_info)
         layout.addWidget(self.project_meta)
-        layout.addWidget(self.message_list, stretch=1)
+        layout.addWidget(self.message_stack, stretch=1)
 
         quick_row = QHBoxLayout()
         for label in ("蒸汽不足", "负荷优化", "能效诊断"):
@@ -221,6 +294,28 @@ class MainWindow(QMainWindow):
         input_row.addWidget(self.send_button)
         layout.addLayout(input_row)
 
+        return widget
+
+    def _build_empty_state(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.addStretch(1)
+
+        title = QLabel("还没有选中对话")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 18px; font-weight: 700; color: #1f2933;")
+
+        subtitle = QLabel(
+            "请先从左侧选择一个 Project 下的对话，或新建项目后开始分析。"
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("font-size: 13px; color: #5f6b7a;")
+
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addStretch(1)
         return widget
 
     def _build_menu(self) -> None:
@@ -261,6 +356,7 @@ class MainWindow(QMainWindow):
                     self.project_tree.setCurrentItem(session_item)
 
         self.project_tree.expandAll()
+        self.update_interaction_state()
 
     def auto_select_initial_session(self) -> None:
         if self.current_session is not None:
@@ -293,9 +389,13 @@ class MainWindow(QMainWindow):
             project = self.storage.get_project(ref.identifier)
             if project:
                 self.current_project = project
+                self.current_session = None
                 self.project_info.setText(f"当前项目：{project.name}")
                 self.session_info.setText("当前对话：-")
                 self.project_meta.setText(self.format_project_meta(project))
+                self.message_list.clear()
+                self.update_message_stack()
+                self.update_interaction_state()
 
     def load_session(self, session_id: int) -> None:
         session = self.storage.get_session(session_id)
@@ -314,7 +414,9 @@ class MainWindow(QMainWindow):
 
         self.message_list.clear()
         for message in self.storage.list_messages(session.id):
-            self.append_message(message.role, message.content)
+            self.append_message(message.role, message.content, timestamp=message.created_at)
+        self.update_message_stack()
+        self.update_interaction_state()
 
     def format_project_meta(self, project: Project) -> str:
         parts = [
@@ -324,15 +426,31 @@ class MainWindow(QMainWindow):
         ]
         return "项目上下文：" + " | ".join(parts)
 
-    def append_message(self, role: str, content: str) -> None:
-        prefix = ROLE_LABELS.get(role, role)
-        item = QListWidgetItem(f"{prefix}：\n{content}")
-        if role == "user":
-            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        else:
-            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    def append_message(self, role: str, content: str, *, timestamp: str = "刚刚") -> None:
+        item = QListWidgetItem()
+        widget = MessageCard(role=role, content=content, timestamp=timestamp)
+        item.setSizeHint(widget.sizeHint())
         self.message_list.addItem(item)
+        self.message_list.setItemWidget(item, widget)
         self.message_list.scrollToBottom()
+        self.update_message_stack()
+
+    def update_message_stack(self) -> None:
+        has_active_session = self.current_session is not None
+        has_messages = self.message_list.count() > 0
+        if has_active_session or has_messages:
+            self.message_stack.setCurrentWidget(self.message_list)
+        else:
+            self.message_stack.setCurrentWidget(self.empty_state)
+
+    def update_interaction_state(self, *, busy: bool = False) -> None:
+        has_session = self.current_session is not None
+        self.send_button.setEnabled(has_session and not busy)
+        self.input_line.setEnabled(has_session and not busy)
+        self.new_project_button.setEnabled(not busy)
+        self.new_session_button.setEnabled(self.current_project is not None and not busy)
+        for button in self.quick_buttons:
+            button.setEnabled(has_session and not busy)
 
     def create_project(self) -> None:
         dialog = ProjectDialog(self)
@@ -471,6 +589,8 @@ class MainWindow(QMainWindow):
             self.project_meta.setText("项目上下文：-")
         self.refresh_tree()
         self.auto_select_initial_session()
+        self.update_message_stack()
+        self.update_interaction_state()
 
     def rename_session(self, session_id: int) -> None:
         session = self.storage.get_session(session_id)
@@ -495,6 +615,8 @@ class MainWindow(QMainWindow):
             self.message_list.clear()
             self.session_info.setText("当前对话：-")
             self.auto_select_initial_session()
+        self.update_message_stack()
+        self.update_interaction_state()
 
     def send_quick_prompt(self, label: str) -> None:
         quick_prompts = {
@@ -536,7 +658,6 @@ class MainWindow(QMainWindow):
         if self.current_session is None:
             return
         self.storage.add_message(self.current_session.id, "assistant", content)
-        self.append_message("assistant", content)
         self.refresh_tree()
         self.load_session(self.current_session.id)
 
@@ -549,12 +670,7 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "请求失败", message)
 
     def set_busy(self, busy: bool) -> None:
-        self.send_button.setEnabled(not busy)
-        self.input_line.setEnabled(not busy)
-        self.new_project_button.setEnabled(not busy)
-        self.new_session_button.setEnabled(not busy)
-        for button in self.quick_buttons:
-            button.setEnabled(not busy)
+        self.update_interaction_state(busy=busy)
 
 
 def build_main_window() -> MainWindow:
