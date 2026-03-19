@@ -69,6 +69,17 @@ class AssistantServiceTests(unittest.TestCase):
         ):
             self.assertEqual(self.service.provider_name(), "openai_compatible")
 
+    def test_provider_name_supports_openai_compatible_fallback_keys(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_BASE_URL": "http://localhost:8000/v1",
+                "OPENAI_MODEL": "gpt-like",
+            },
+            clear=True,
+        ):
+            self.assertEqual(self.service.provider_name(), "openai_compatible")
+
     def test_build_provider_messages_keeps_project_context(self) -> None:
         messages = self.service._build_provider_messages(
             project=self.project,

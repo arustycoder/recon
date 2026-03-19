@@ -50,6 +50,15 @@ export DARKFACTORY_OPENAI_API_KEY=dummy-or-real-key
 export DARKFACTORY_OPENAI_MODEL=my-model
 ```
 
+`.env` support:
+
+- the app loads `.env` from the repository root automatically
+- shell environment variables still take precedence over `.env`
+- for OpenAI-compatible providers, these generic keys are also supported:
+  - `OPENAI_BASE_URL`
+  - `OPENAI_API_KEY`
+  - `OPENAI_MODEL`
+
 Suggested next step:
 
 - Connect a real backend endpoint and replace mock responses with live analysis

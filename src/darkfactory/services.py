@@ -8,31 +8,41 @@ from .models import Message, Project, Session
 
 
 class AssistantService:
+    def _env(self, primary_key: str, *fallback_keys: str) -> str:
+        value = os.getenv(primary_key, "").strip()
+        if value:
+            return value
+        for key in fallback_keys:
+            fallback = os.getenv(key, "").strip()
+            if fallback:
+                return fallback
+        return ""
+
     def provider_name(self) -> str:
-        explicit = os.getenv("DARKFACTORY_LLM_PROVIDER", "").strip().lower()
+        explicit = self._env("DARKFACTORY_LLM_PROVIDER").lower()
         if explicit in {"mock", "ollama", "openai_compatible", "http_backend"}:
             return explicit
 
-        if os.getenv("DARKFACTORY_OLLAMA_MODEL", "").strip():
+        if self._env("DARKFACTORY_OLLAMA_MODEL"):
             return "ollama"
-        if os.getenv("DARKFACTORY_OPENAI_BASE_URL", "").strip() and os.getenv(
-            "DARKFACTORY_OPENAI_MODEL", ""
-        ).strip():
+        if self._env("DARKFACTORY_OPENAI_BASE_URL", "OPENAI_BASE_URL") and self._env(
+            "DARKFACTORY_OPENAI_MODEL", "OPENAI_MODEL"
+        ):
             return "openai_compatible"
-        if os.getenv("DARKFACTORY_API_URL", "").strip():
+        if self._env("DARKFACTORY_API_URL"):
             return "http_backend"
         return "mock"
 
     def mode_label(self) -> str:
         provider = self.provider_name()
         if provider == "ollama":
-            model = os.getenv("DARKFACTORY_OLLAMA_MODEL", "").strip() or "未设置模型"
+            model = self._env("DARKFACTORY_OLLAMA_MODEL") or "未设置模型"
             return f"Local LLM (Ollama): {model}"
         if provider == "openai_compatible":
-            model = os.getenv("DARKFACTORY_OPENAI_MODEL", "").strip() or "未设置模型"
+            model = self._env("DARKFACTORY_OPENAI_MODEL", "OPENAI_MODEL") or "未设置模型"
             return f"OpenAI-Compatible: {model}"
         if provider == "http_backend":
-            api_url = os.getenv("DARKFACTORY_API_URL", "").strip()
+            api_url = self._env("DARKFACTORY_API_URL")
             return f"HTTP Backend: {api_url}"
         return "Mock"
 
@@ -47,10 +57,9 @@ class AssistantService:
         provider = self.provider_name()
         if provider == "ollama":
             return self._reply_via_openai_compatible(
-                base_url=os.getenv("DARKFACTORY_OLLAMA_URL", "").strip()
-                or "http://127.0.0.1:11434/v1",
-                api_key=os.getenv("DARKFACTORY_OLLAMA_API_KEY", "").strip() or "ollama",
-                model=os.getenv("DARKFACTORY_OLLAMA_MODEL", "").strip(),
+                base_url=self._env("DARKFACTORY_OLLAMA_URL") or "http://127.0.0.1:11434/v1",
+                api_key=self._env("DARKFACTORY_OLLAMA_API_KEY") or "ollama",
+                model=self._env("DARKFACTORY_OLLAMA_MODEL"),
                 project=project,
                 session=session,
                 recent_messages=recent_messages,
@@ -58,9 +67,9 @@ class AssistantService:
             )
         if provider == "openai_compatible":
             return self._reply_via_openai_compatible(
-                base_url=os.getenv("DARKFACTORY_OPENAI_BASE_URL", "").strip(),
-                api_key=os.getenv("DARKFACTORY_OPENAI_API_KEY", "").strip(),
-                model=os.getenv("DARKFACTORY_OPENAI_MODEL", "").strip(),
+                base_url=self._env("DARKFACTORY_OPENAI_BASE_URL", "OPENAI_BASE_URL"),
+                api_key=self._env("DARKFACTORY_OPENAI_API_KEY", "OPENAI_API_KEY"),
+                model=self._env("DARKFACTORY_OPENAI_MODEL", "OPENAI_MODEL"),
                 project=project,
                 session=session,
                 recent_messages=recent_messages,
@@ -68,7 +77,7 @@ class AssistantService:
             )
         if provider == "http_backend":
             return self._reply_via_http(
-                api_url=os.getenv("DARKFACTORY_API_URL", "").strip(),
+                api_url=self._env("DARKFACTORY_API_URL"),
                 project=project,
                 session=session,
                 recent_messages=recent_messages,
