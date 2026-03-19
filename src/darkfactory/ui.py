@@ -58,6 +58,11 @@ class WorkerResult:
     provider: str
     target: str
     latency_ms: int
+    first_token_latency_ms: int = 0
+    stream_mode: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
     content: str = ""
     error: str = ""
 
@@ -68,6 +73,7 @@ class RequestContext:
     provider: str
     target: str
     started_at: float
+    first_token_latency_ms: int = 0
 
 
 class AssistantWorker(QThread):
@@ -96,6 +102,7 @@ class AssistantWorker(QThread):
         provider = self._service.provider_name()
         target = self._service.target_label()
         accumulated_parts: list[str] = []
+        first_token_latency_ms = 0
         try:
             for chunk in self._service.stream_reply(
                 project=self._project,
@@ -106,22 +113,36 @@ class AssistantWorker(QThread):
                 if not chunk:
                     continue
                 accumulated_parts.append(chunk)
+                if first_token_latency_ms == 0:
+                    first_token_latency_ms = int((perf_counter() - started_at) * 1000)
                 self.streamed.emit("".join(accumulated_parts))
         except Exception as exc:  # pragma: no cover - Qt thread path
+            metrics = self._service.last_response_metrics()
             self.failed.emit(
                 WorkerResult(
                     provider=provider,
                     target=target,
                     latency_ms=int((perf_counter() - started_at) * 1000),
+                    first_token_latency_ms=first_token_latency_ms,
+                    stream_mode=metrics.stream_mode,
+                    prompt_tokens=metrics.prompt_tokens,
+                    completion_tokens=metrics.completion_tokens,
+                    total_tokens=metrics.total_tokens,
                     error=str(exc),
                 )
             )
             return
+        metrics = self._service.last_response_metrics()
         self.succeeded.emit(
             WorkerResult(
                 provider=provider,
                 target=target,
                 latency_ms=int((perf_counter() - started_at) * 1000),
+                first_token_latency_ms=first_token_latency_ms,
+                stream_mode=metrics.stream_mode,
+                prompt_tokens=metrics.prompt_tokens,
+                completion_tokens=metrics.completion_tokens,
+                total_tokens=metrics.total_tokens,
                 content="".join(accumulated_parts),
             )
         )
@@ -410,27 +431,67 @@ class RequestLogDialog(QDialog):
         super().__init__(parent)
         self._storage = storage
         self.setWindowTitle("请求日志")
-        self.resize(900, 460)
+        self.resize(1180, 520)
+
+        self.provider_filter = QComboBox()
+        self.provider_filter.addItem("全部 Provider", "")
+        for provider in ("mock", "ollama", "openai_compatible", "http_backend"):
+            self.provider_filter.addItem(provider, provider)
+        self.provider_filter.currentIndexChanged.connect(self.populate)
+
+        self.status_filter = QComboBox()
+        self.status_filter.addItem("全部状态", "")
+        for status in ("success", "error", "canceled"):
+            self.status_filter.addItem(status, status)
+        self.status_filter.currentIndexChanged.connect(self.populate)
+
+        self.summary_label = QLabel("暂无日志。")
 
         self.log_tree = QTreeWidget()
         self.log_tree.setRootIsDecorated(False)
         self.log_tree.setAlternatingRowColors(True)
         self.log_tree.setHeaderLabels(
-            ["时间", "会话", "Provider", "目标", "状态", "耗时(ms)", "详情"]
+            [
+                "时间",
+                "会话",
+                "Provider",
+                "目标",
+                "状态",
+                "模式",
+                "首字延迟",
+                "总耗时",
+                "Prompt",
+                "Completion",
+                "Total",
+                "详情",
+            ]
         )
 
         refresh_button = QPushButton("刷新")
         refresh_button.clicked.connect(self.populate)
 
+        clear_button = QPushButton("清空当前筛选")
+        clear_button.clicked.connect(self.clear_logs)
+
         close_button = QPushButton("关闭")
         close_button.clicked.connect(self.accept)
 
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Provider"))
+        filter_row.addWidget(self.provider_filter)
+        filter_row.addWidget(QLabel("状态"))
+        filter_row.addWidget(self.status_filter)
+        filter_row.addStretch(1)
+
         button_row = QHBoxLayout()
         button_row.addWidget(refresh_button)
+        button_row.addWidget(clear_button)
         button_row.addStretch(1)
         button_row.addWidget(close_button)
 
         layout = QVBoxLayout(self)
+        layout.addLayout(filter_row)
+        layout.addWidget(self.summary_label)
         layout.addWidget(self.log_tree)
         layout.addLayout(button_row)
 
@@ -438,7 +499,20 @@ class RequestLogDialog(QDialog):
 
     def populate(self) -> None:
         self.log_tree.clear()
-        for entry in self._storage.list_request_logs(limit=200):
+        logs = self._storage.list_request_logs(
+            limit=200,
+            provider=str(self.provider_filter.currentData() or ""),
+            status=str(self.status_filter.currentData() or ""),
+        )
+        if logs:
+            avg_latency = int(sum(entry.latency_ms for entry in logs) / len(logs))
+            avg_first = int(sum(entry.first_token_latency_ms for entry in logs) / len(logs))
+            self.summary_label.setText(
+                f"共 {len(logs)} 条 | 平均首字延迟 {avg_first} ms | 平均总耗时 {avg_latency} ms"
+            )
+        else:
+            self.summary_label.setText("暂无符合当前筛选条件的日志。")
+        for entry in logs:
             session_label = "-"
             if entry.session_id is not None:
                 session = self._storage.get_session(entry.session_id)
@@ -450,13 +524,31 @@ class RequestLogDialog(QDialog):
                     entry.provider,
                     entry.model,
                     entry.status,
+                    entry.stream_mode or "-",
+                    str(entry.first_token_latency_ms),
                     str(entry.latency_ms),
+                    str(entry.prompt_tokens),
+                    str(entry.completion_tokens),
+                    str(entry.total_tokens),
                     entry.detail or "-",
                 ]
             )
             self.log_tree.addTopLevelItem(item)
         for column in range(self.log_tree.columnCount() - 1):
             self.log_tree.resizeColumnToContents(column)
+
+    def clear_logs(self) -> None:
+        provider = str(self.provider_filter.currentData() or "")
+        status = str(self.status_filter.currentData() or "")
+        if provider or status:
+            message = "确认清空当前筛选条件下的请求日志吗？"
+        else:
+            message = "确认清空全部请求日志吗？"
+        result = QMessageBox.question(self, "清空日志", message)
+        if result != QMessageBox.StandardButton.Yes:
+            return
+        self._storage.clear_request_logs(provider=provider, status=status)
+        self.populate()
 
 
 class MainWindow(QMainWindow):
@@ -870,6 +962,9 @@ class MainWindow(QMainWindow):
             return
         if self.pending_request_id != request_id:
             return
+        context = self.request_contexts.get(request_id)
+        if context is not None and context.first_token_latency_ms == 0:
+            context.first_token_latency_ms = int((perf_counter() - context.started_at) * 1000)
         self.pending_message_content = content or self.pending_message_text
         self.ensure_pending_message_visible(session_id)
         if self.pending_message_item is not None:
@@ -1198,7 +1293,9 @@ class MainWindow(QMainWindow):
                 provider=context.provider,
                 model=context.target,
                 status="canceled",
+                stream_mode="canceled",
                 latency_ms=elapsed_ms,
+                first_token_latency_ms=context.first_token_latency_ms,
                 detail="User canceled waiting for the response.",
             )
         if self.current_session is not None and self.current_session.id == session_id:
@@ -1228,13 +1325,20 @@ class MainWindow(QMainWindow):
             provider=result.provider,
             model=result.target,
             status="success",
+            stream_mode=result.stream_mode,
             latency_ms=result.latency_ms,
+            first_token_latency_ms=result.first_token_latency_ms,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
             detail="",
         )
         self.refresh_tree()
         if self.current_session is not None and self.current_session.id == session_id:
             self.load_session(session_id)
-        self._set_status_message(f"最近一次请求 {result.latency_ms} ms")
+        self._set_status_message(
+            f"最近一次请求 首字 {result.first_token_latency_ms} ms / 总耗时 {result.latency_ms} ms"
+        )
 
     def on_assistant_error(self, request_id: int, session_id: int, result: WorkerResult) -> None:
         if request_id in self.canceled_request_ids:
@@ -1246,7 +1350,12 @@ class MainWindow(QMainWindow):
             provider=result.provider,
             model=result.target,
             status="error",
+            stream_mode=result.stream_mode,
             latency_ms=result.latency_ms,
+            first_token_latency_ms=result.first_token_latency_ms,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
             detail=result.error,
         )
         self.refresh_tree()

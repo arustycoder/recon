@@ -94,6 +94,16 @@ class AssistantServiceTests(unittest.TestCase):
 
         self.assertGreater(len(chunks), 1)
         self.assertIn("【结论】", "".join(chunks))
+        self.assertEqual(self.service.last_response_metrics().stream_mode, "stream")
+
+    def test_apply_usage_metrics_updates_last_response_metrics(self) -> None:
+        self.service._apply_usage_metrics(
+            {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+        )
+        metrics = self.service.last_response_metrics()
+        self.assertEqual(metrics.prompt_tokens, 10)
+        self.assertEqual(metrics.completion_tokens, 20)
+        self.assertEqual(metrics.total_tokens, 30)
 
     def test_build_provider_messages_keeps_project_context(self) -> None:
         messages = self.service._build_provider_messages(

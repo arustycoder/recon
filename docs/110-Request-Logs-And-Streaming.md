@@ -36,6 +36,8 @@ Improve operator confidence and chat responsiveness by adding:
   - latency
   - detail
 - optimized for quick troubleshooting instead of full reporting
+- supports simple provider and status filters
+- supports clearing either all logs or the currently filtered slice
 
 ### Streaming Chat
 
@@ -43,6 +45,7 @@ Improve operator confidence and chat responsiveness by adding:
 - slow-request messaging should still work before the first chunk arrives
 - once streaming starts, the chat should keep appending content into the same assistant card
 - if no stream is available, the UI should keep the existing single-reply behavior
+- capture and display first-token latency and final total latency in request diagnostics
 
 ## Provider Impact
 
@@ -56,3 +59,4 @@ Improve operator confidence and chat responsiveness by adding:
 - run streaming in worker threads, never on the Qt UI thread
 - treat streamed content as transient until the request completes successfully
 - write one final request log record per completed, errored, or canceled request
+- when token usage is reported by the provider, persist it alongside the request log

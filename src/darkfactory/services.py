@@ -5,7 +5,7 @@ from dataclasses import asdict
 from typing import Iterable, Iterator
 
 from .config import derive_http_health_url, provider_settings_from_env
-from .models import Message, Project, ProviderSettings, Session
+from .models import Message, Project, ProviderSettings, ResponseMetrics, Session
 
 
 SUPPORTED_PROVIDERS = {"mock", "ollama", "openai_compatible", "http_backend"}
@@ -14,12 +14,16 @@ SUPPORTED_PROVIDERS = {"mock", "ollama", "openai_compatible", "http_backend"}
 class AssistantService:
     def __init__(self, settings: ProviderSettings | None = None) -> None:
         self._settings = settings
+        self._last_metrics = ResponseMetrics()
 
     def update_settings(self, settings: ProviderSettings) -> None:
         self._settings = settings
 
     def current_settings(self) -> ProviderSettings:
         return self._settings or provider_settings_from_env()
+
+    def last_response_metrics(self) -> ResponseMetrics:
+        return self._last_metrics
 
     def provider_name(self, settings: ProviderSettings | None = None) -> str:
         config = settings or self.current_settings()
@@ -93,7 +97,9 @@ class AssistantService:
         config = settings or self.current_settings()
         provider = self.provider_name(config)
         timeout = float(self.request_timeout_seconds(config))
+        self._last_metrics = ResponseMetrics()
         if provider == "ollama":
+            self._last_metrics.stream_mode = "stream"
             yield from self._stream_via_openai_compatible(
                 base_url=config.ollama_url or "http://127.0.0.1:11434/v1",
                 api_key=config.ollama_api_key or "ollama",
@@ -106,6 +112,7 @@ class AssistantService:
             )
             return
         if provider == "openai_compatible":
+            self._last_metrics.stream_mode = "stream"
             yield from self._stream_via_openai_compatible(
                 base_url=config.openai_base_url,
                 api_key=config.openai_api_key,
@@ -118,6 +125,7 @@ class AssistantService:
             )
             return
         if provider == "http_backend":
+            self._last_metrics.stream_mode = "single"
             yield self._reply_via_http(
                 api_url=config.api_url,
                 project=project,
@@ -127,6 +135,7 @@ class AssistantService:
                 timeout=timeout,
             )
             return
+        self._last_metrics.stream_mode = "stream"
         yield from self._stream_via_mock(project=project, user_message=user_message)
 
     def health_check(self, settings: ProviderSettings | None = None) -> str:
@@ -188,6 +197,7 @@ class AssistantService:
             response = client.post(api_url, json=payload)
             response.raise_for_status()
         data = response.json()
+        self._apply_usage_metrics(data.get("usage") or {})
         reply = data.get("reply", "").strip()
         if not reply:
             raise ValueError("HTTP assistant response did not contain 'reply'")
@@ -277,6 +287,7 @@ class AssistantService:
                         chunk_payload = json.loads(data_line)
                     except json.JSONDecodeError:
                         continue
+                    self._apply_usage_metrics(chunk_payload.get("usage") or {})
                     text = self._extract_openai_stream_text(chunk_payload)
                     if text:
                         collected_parts.append(text)
@@ -292,10 +303,26 @@ class AssistantService:
         with httpx.Client(timeout=timeout) as client:
             response = client.post(endpoint, json=fallback_payload, headers=headers)
             response.raise_for_status()
-        text = self._extract_openai_response_text(response.json())
+        data = response.json()
+        self._last_metrics.stream_mode = "single"
+        self._apply_usage_metrics(data.get("usage") or {})
+        text = self._extract_openai_response_text(data)
         if not text:
             raise ValueError("OpenAI-compatible response did not contain assistant text")
         yield text
+
+    def _apply_usage_metrics(self, usage: dict) -> None:
+        if not isinstance(usage, dict):
+            return
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+        if isinstance(prompt_tokens, int):
+            self._last_metrics.prompt_tokens = prompt_tokens
+        if isinstance(completion_tokens, int):
+            self._last_metrics.completion_tokens = completion_tokens
+        if isinstance(total_tokens, int):
+            self._last_metrics.total_tokens = total_tokens
 
     def _extract_openai_stream_text(self, data: dict) -> str:
         choices = data.get("choices") or []

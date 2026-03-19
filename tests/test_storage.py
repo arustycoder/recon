@@ -79,7 +79,12 @@ class StorageTests(unittest.TestCase):
                 provider="mock",
                 model="mock",
                 status="success",
+                stream_mode="stream",
                 latency_ms=120,
+                first_token_latency_ms=40,
+                prompt_tokens=12,
+                completion_tokens=24,
+                total_tokens=36,
                 detail="",
             )
 
@@ -87,6 +92,38 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(len(logs), 1)
             self.assertEqual(logs[0].session_id, session_id)
             self.assertEqual(logs[0].status, "success")
+            self.assertEqual(logs[0].stream_mode, "stream")
+            self.assertEqual(logs[0].total_tokens, 36)
+
+    def test_request_log_filters_and_clear(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "darkfactory.db"
+            storage = Storage(db_path=db_path)
+
+            project_id = storage.create_project("测试项目")
+            session_id = storage.create_session(project_id, "测试对话")
+            storage.add_request_log(
+                session_id=session_id,
+                provider="mock",
+                model="mock",
+                status="success",
+                latency_ms=10,
+            )
+            storage.add_request_log(
+                session_id=session_id,
+                provider="openai_compatible",
+                model="demo",
+                status="error",
+                latency_ms=20,
+            )
+
+            self.assertEqual(len(storage.list_request_logs(provider="mock")), 1)
+            self.assertEqual(len(storage.list_request_logs(status="error")), 1)
+
+            storage.clear_request_logs(provider="mock")
+            logs = storage.list_request_logs()
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0].provider, "openai_compatible")
 
 
 if __name__ == "__main__":

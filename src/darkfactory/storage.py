@@ -72,13 +72,36 @@ class Storage:
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
+                    stream_mode TEXT NOT NULL DEFAULT '',
                     latency_ms INTEGER NOT NULL DEFAULT 0,
+                    first_token_latency_ms INTEGER NOT NULL DEFAULT 0,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
                     detail TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE SET NULL
                 );
                 """
             )
+            self._ensure_request_log_columns(connection)
+
+    def _ensure_request_log_columns(self, connection: sqlite3.Connection) -> None:
+        existing = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(request_logs)").fetchall()
+        }
+        required_columns = {
+            "stream_mode": "TEXT NOT NULL DEFAULT ''",
+            "first_token_latency_ms": "INTEGER NOT NULL DEFAULT 0",
+            "prompt_tokens": "INTEGER NOT NULL DEFAULT 0",
+            "completion_tokens": "INTEGER NOT NULL DEFAULT 0",
+            "total_tokens": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for name, spec in required_columns.items():
+            if name in existing:
+                continue
+            connection.execute(f"ALTER TABLE request_logs ADD COLUMN {name} {spec}")
 
     def bootstrap(self) -> None:
         if self.list_projects():
@@ -334,28 +357,107 @@ class Storage:
         provider: str,
         model: str,
         status: str,
+        stream_mode: str = "",
         latency_ms: int,
+        first_token_latency_ms: int = 0,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
         detail: str = "",
     ) -> int:
         with self.connect() as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO request_logs (session_id, provider, model, status, latency_ms, detail)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO request_logs (
+                    session_id,
+                    provider,
+                    model,
+                    status,
+                    stream_mode,
+                    latency_ms,
+                    first_token_latency_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    detail
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, provider, model, status, latency_ms, detail),
+                (
+                    session_id,
+                    provider,
+                    model,
+                    status,
+                    stream_mode,
+                    latency_ms,
+                    first_token_latency_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    detail,
+                ),
             )
             return int(cursor.lastrowid)
 
-    def list_request_logs(self, limit: int = 100) -> list[RequestLog]:
+    def list_request_logs(
+        self,
+        limit: int = 100,
+        *,
+        provider: str = "",
+        status: str = "",
+    ) -> list[RequestLog]:
+        where_clauses: list[str] = []
+        values: list[str | int] = []
+        if provider:
+            where_clauses.append("provider = ?")
+            values.append(provider)
+        if status:
+            where_clauses.append("status = ?")
+            values.append(status)
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+
+        values.append(limit)
         with self.connect() as connection:
             rows = connection.execute(
-                """
-                SELECT id, session_id, provider, model, status, latency_ms, detail, created_at
+                f"""
+                SELECT
+                    id,
+                    session_id,
+                    provider,
+                    model,
+                    status,
+                    stream_mode,
+                    latency_ms,
+                    first_token_latency_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    detail,
+                    created_at
                 FROM request_logs
+                {where_sql}
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (limit,),
+                tuple(values),
             ).fetchall()
         return [RequestLog(**dict(row)) for row in rows]
+
+    def clear_request_logs(self, *, provider: str = "", status: str = "") -> None:
+        where_clauses: list[str] = []
+        values: list[str] = []
+        if provider:
+            where_clauses.append("provider = ?")
+            values.append(provider)
+        if status:
+            where_clauses.append("status = ?")
+            values.append(status)
+
+        sql = "DELETE FROM request_logs"
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+        with self.connect() as connection:
+            connection.execute(sql, tuple(values))

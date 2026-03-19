@@ -92,3 +92,11 @@ Docs:
 - `docs/90-Session-Summaries.md`
 - `docs/100-Packaging-And-Installer.md`
 - `docs/110-Request-Logs-And-Streaming.md`
+
+Provider comparison:
+
+```bash
+uv run python scripts/compare_providers.py
+```
+
+This runs a small direct comparison between `mock` and the currently configured local or compatible provider, and prints first-chunk latency, total latency, stream mode, and any reported token usage.

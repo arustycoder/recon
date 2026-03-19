@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from time import perf_counter
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -15,7 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QMessageBox
 
 from darkfactory.models import ProviderSettings
 from darkfactory.services import AssistantService
@@ -165,6 +166,7 @@ class MainWindowTests(unittest.TestCase):
             provider="mock",
             model="mock",
             status="success",
+            stream_mode="stream",
             latency_ms=33,
             detail="",
         )
@@ -172,6 +174,35 @@ class MainWindowTests(unittest.TestCase):
         dialog = RequestLogDialog(self.storage)
         self.assertEqual(dialog.log_tree.topLevelItemCount(), 1)
         self.assertEqual(dialog.log_tree.topLevelItem(0).text(2), "mock")
+        dialog.close()
+
+    def test_request_log_dialog_filters_and_clears(self) -> None:
+        self.assertIsNotNone(self.window.current_session)
+        session_id = self.window.current_session.id
+        self.storage.add_request_log(
+            session_id=session_id,
+            provider="mock",
+            model="mock",
+            status="success",
+            latency_ms=11,
+        )
+        self.storage.add_request_log(
+            session_id=session_id,
+            provider="openai_compatible",
+            model="demo",
+            status="error",
+            latency_ms=22,
+        )
+
+        dialog = RequestLogDialog(self.storage)
+        dialog.provider_filter.setCurrentText("mock")
+        dialog.populate()
+        self.assertEqual(dialog.log_tree.topLevelItemCount(), 1)
+
+        with patch("darkfactory.ui.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+            dialog.clear_logs()
+
+        self.assertEqual(len(self.storage.list_request_logs(provider="mock")), 0)
         dialog.close()
 
 

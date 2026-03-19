@@ -52,6 +52,19 @@ class RequestLog:
     provider: str
     model: str
     status: str
+    stream_mode: str
     latency_ms: int
+    first_token_latency_ms: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
     detail: str
     created_at: str
+
+
+@dataclass(slots=True)
+class ResponseMetrics:
+    stream_mode: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
