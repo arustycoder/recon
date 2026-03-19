@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from time import perf_counter
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -16,9 +17,10 @@ if str(SRC) not in sys.path:
 
 from PySide6.QtWidgets import QLabel
 
+from darkfactory.models import ProviderSettings
 from darkfactory.services import AssistantService
 from darkfactory.storage import Storage
-from darkfactory.ui import MainWindow, create_application
+from darkfactory.ui import MainWindow, RequestContext, WorkerResult, create_application
 
 
 class MainWindowTests(unittest.TestCase):
@@ -30,7 +32,10 @@ class MainWindowTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.storage = Storage(Path(self.temp_dir.name) / "darkfactory.db")
         self.storage.bootstrap()
-        self.window = MainWindow(storage=self.storage, assistant=AssistantService())
+        self.window = MainWindow(
+            storage=self.storage,
+            assistant=AssistantService(ProviderSettings(provider="mock")),
+        )
 
     def tearDown(self) -> None:
         self.window.close()
@@ -48,8 +53,9 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsNotNone(self.window.current_session)
         session_id = self.window.current_session.id
         baseline_count = self.window.message_list.count()
+        request_id = self.window.next_request_id()
 
-        self.window.start_pending_response(session_id)
+        self.window.start_pending_response(request_id, session_id)
 
         self.assertEqual(self.window.message_list.count(), baseline_count + 1)
         self.assertIn("正在思考", self.message_body_text(self.window.message_list.count() - 1))
@@ -64,13 +70,18 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsNotNone(self.window.current_session)
         origin_session_id = self.window.current_session.id
         second_session_id = self.storage.create_session(self.window.current_project.id, "第二对话")
+        request_id = self.window.next_request_id()
 
         self.window.refresh_tree()
-        self.window.start_pending_response(origin_session_id)
+        self.window.start_pending_response(request_id, origin_session_id)
         self.window.load_session(second_session_id)
 
-        self.window.on_assistant_reply(origin_session_id, "后台回复")
-        self.window.on_request_finished(origin_session_id)
+        self.window.on_assistant_reply(
+            request_id,
+            origin_session_id,
+            WorkerResult(provider="mock", target="mock", latency_ms=10, content="后台回复"),
+        )
+        self.window.on_request_finished(request_id, origin_session_id)
 
         origin_messages = self.storage.list_messages(origin_session_id)
         self.assertEqual(origin_messages[-1].content, "后台回复")
@@ -81,14 +92,54 @@ class MainWindowTests(unittest.TestCase):
     def test_finishing_current_session_reply_does_not_touch_deleted_placeholder(self) -> None:
         self.assertIsNotNone(self.window.current_session)
         session_id = self.window.current_session.id
+        request_id = self.window.next_request_id()
 
-        self.window.start_pending_response(session_id)
-        self.window.on_assistant_reply(session_id, "当前会话回复")
-        self.window.on_request_finished(session_id)
+        self.window.start_pending_response(request_id, session_id)
+        self.window.on_assistant_reply(
+            request_id,
+            session_id,
+            WorkerResult(provider="mock", target="mock", latency_ms=10, content="当前会话回复"),
+        )
+        self.window.on_request_finished(request_id, session_id)
 
         messages = self.storage.list_messages(session_id)
         self.assertEqual(messages[-1].content, "当前会话回复")
         self.assertIsNone(self.window.pending_message_item)
+
+    def test_auto_session_title_uses_first_prompt(self) -> None:
+        self.assertIsNotNone(self.window.current_session)
+        session_id = self.window.current_session.id
+
+        self.window.apply_auto_session_title(
+            session_id,
+            "请结合当前项目背景，分析蒸汽不足的可能原因并给出调整建议。",
+        )
+
+        session = self.storage.get_session(session_id)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.name, "蒸汽不足分析")
+        self.assertEqual(session.summary, "蒸汽不足分析")
+
+    def test_cancel_active_request_writes_cancel_message_and_log(self) -> None:
+        self.assertIsNotNone(self.window.current_session)
+        session_id = self.window.current_session.id
+        request_id = self.window.next_request_id()
+        self.window.request_contexts[request_id] = RequestContext(
+            session_id=session_id,
+            provider="mock",
+            target="mock",
+            started_at=perf_counter(),
+        )
+        self.window.start_pending_response(request_id, session_id)
+        self.window.set_busy(True)
+
+        self.window.cancel_active_request()
+
+        messages = self.storage.list_messages(session_id)
+        logs = self.storage.list_request_logs()
+        self.assertIn("已取消", messages[-1].content)
+        self.assertEqual(logs[0].status, "canceled")
+        self.assertFalse(self.window.is_busy)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,11 @@ Build a project-based conversational workbench for energy operations analysis:
 - API integration layer for model access
 - Local LLM integration for direct chat in the desktop app
 - OpenAI-compatible backend integration for remote chat providers
+- In-app settings page for provider configuration
+- Provider connection health checks
+- Local request logging and latency tracking
+- Request cancel interaction for long-running model calls
+- Automatic session title and summary generation
 - Windows installer packaging requirement
 
 ### Excluded
@@ -168,7 +173,11 @@ Model / Business Logic / Data Source
 - Add backend client
 - Add local LLM client path for desktop-side inference
 - Add OpenAI-compatible backend client path
+- Add a visible settings entry point for model configuration
+- Add provider health check actions
+- Add local request logging with latency and error capture
 - Add request timeout and error handling
+- Add request cancel interaction for long-running calls
 - Render structured assistant results
 
 ### Phase 5: Domainization
@@ -176,12 +185,14 @@ Model / Business Logic / Data Source
 - Add prompt templates
 - Add project-level domain context
 - Add quick questions for common scenarios
+- Auto-generate session titles from the first meaningful user prompt
 
 ### Phase 6: Windows Delivery
 
 - Add app icon and version info
 - Package executable
 - Build a distributable Windows installer package
+- Add repeatable packaging scripts for developers
 - Define installation path, shortcuts, and upgrade behavior
 - Validate clean startup on Windows
 
@@ -194,6 +205,11 @@ Model / Business Logic / Data Source
 - Responses are rendered clearly and consistently
 - If local LLM is configured, users can chat with it directly in the dialogue window
 - If an OpenAI-compatible backend is configured, users can chat with it directly in the dialogue window
+- Users can update provider settings from the desktop app
+- Users can run a provider connection test before sending a message
+- The app stores local request logs with status and latency
+- Users can cancel waiting for a long-running reply
+- New generic sessions get a meaningful auto-generated title
 - App can be packaged into a Windows executable
 - App can be packaged into a Windows installer for end-user delivery
 

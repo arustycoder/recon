@@ -13,7 +13,9 @@ dependencies = [
 darkfactory = "darkfactory.app:main"
 
 [dependency-groups]
-dev = []
+dev = [
+    "pyinstaller>=6.13",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

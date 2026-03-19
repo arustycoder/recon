@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from darkfactory.storage import Storage
+from darkfactory.models import ProviderSettings
 
 
 class StorageTests(unittest.TestCase):
@@ -45,6 +46,47 @@ class StorageTests(unittest.TestCase):
             storage.set_state("last_session_id", "42")
 
             self.assertEqual(storage.get_state("last_session_id"), "42")
+
+    def test_provider_settings_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "darkfactory.db"
+            storage = Storage(db_path=db_path)
+
+            settings = ProviderSettings(
+                provider="openai_compatible",
+                openai_base_url="http://localhost:8000/v1",
+                openai_api_key="secret",
+                openai_model="demo-model",
+                request_timeout_seconds=45,
+            )
+            storage.save_provider_settings(settings)
+            loaded = storage.get_provider_settings()
+
+            self.assertEqual(loaded.provider, "openai_compatible")
+            self.assertEqual(loaded.openai_base_url, "http://localhost:8000/v1")
+            self.assertEqual(loaded.openai_model, "demo-model")
+            self.assertEqual(loaded.request_timeout_seconds, 45)
+
+    def test_request_log_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "darkfactory.db"
+            storage = Storage(db_path=db_path)
+
+            project_id = storage.create_project("测试项目")
+            session_id = storage.create_session(project_id, "测试对话")
+            storage.add_request_log(
+                session_id=session_id,
+                provider="mock",
+                model="mock",
+                status="success",
+                latency_ms=120,
+                detail="",
+            )
+
+            logs = storage.list_request_logs()
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0].session_id, session_id)
+            self.assertEqual(logs[0].status, "success")
 
 
 if __name__ == "__main__":

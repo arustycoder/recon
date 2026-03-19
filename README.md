@@ -15,6 +15,7 @@ Current status:
 - Repository conventions saved in `AGENTS.md`
 - First MVP workbench implemented with local SQLite persistence and a mock assistant
 - Tooling and workspace rules saved in `docs/20-Tooling-and-Workspace.md`
+- In-app provider settings, health checks, chat cancel flow, and session auto-titles implemented
 
 Run locally:
 
@@ -34,6 +35,17 @@ Behavior:
 - default mode uses a built-in mock assistant
 - if `DARKFACTORY_API_URL` is set, the app will POST chat requests to that endpoint
 - if local or remote model provider variables are set, the app can talk directly to those providers
+- saved desktop settings override bootstrap defaults from `.env` on subsequent launches
+
+Desktop features:
+
+- provider settings dialog under `工具 -> 模型设置`
+- connection test before saving provider settings
+- configurable request timeout
+- visible waiting and slow-request states in chat
+- `停止等待` action for long-running model calls
+- local request logs stored in the SQLite database
+- automatic session titling for generic new sessions
 
 Provider examples:
 
@@ -59,6 +71,21 @@ export DARKFACTORY_OPENAI_MODEL=my-model
   - `OPENAI_API_KEY`
   - `OPENAI_MODEL`
 
-Suggested next step:
+Windows packaging:
 
-- Connect a real backend endpoint and replace mock responses with live analysis
+```powershell
+uv sync --group dev
+powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
+```
+
+Notes:
+
+- the packaging script is meant to run on a Windows build machine
+- it builds the executable with `PyInstaller`
+- if Inno Setup 6 is installed, it also builds a Windows installer
+
+Docs:
+
+- `docs/80-Settings-And-Operations.md`
+- `docs/90-Session-Summaries.md`
+- `docs/100-Packaging-And-Installer.md`

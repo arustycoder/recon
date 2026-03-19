@@ -1,49 +1,64 @@
 from __future__ import annotations
 
-import os
 from dataclasses import asdict
 from typing import Iterable
 
-from .models import Message, Project, Session
+from .config import derive_http_health_url, provider_settings_from_env
+from .models import Message, Project, ProviderSettings, Session
+
+
+SUPPORTED_PROVIDERS = {"mock", "ollama", "openai_compatible", "http_backend"}
 
 
 class AssistantService:
-    def _env(self, primary_key: str, *fallback_keys: str) -> str:
-        value = os.getenv(primary_key, "").strip()
-        if value:
-            return value
-        for key in fallback_keys:
-            fallback = os.getenv(key, "").strip()
-            if fallback:
-                return fallback
-        return ""
+    def __init__(self, settings: ProviderSettings | None = None) -> None:
+        self._settings = settings
 
-    def provider_name(self) -> str:
-        explicit = self._env("DARKFACTORY_LLM_PROVIDER").lower()
-        if explicit in {"mock", "ollama", "openai_compatible", "http_backend"}:
+    def update_settings(self, settings: ProviderSettings) -> None:
+        self._settings = settings
+
+    def current_settings(self) -> ProviderSettings:
+        return self._settings or provider_settings_from_env()
+
+    def provider_name(self, settings: ProviderSettings | None = None) -> str:
+        config = settings or self.current_settings()
+        explicit = config.provider.strip().lower()
+        if explicit in SUPPORTED_PROVIDERS:
             return explicit
-
-        if self._env("DARKFACTORY_OLLAMA_MODEL"):
+        if config.ollama_model:
             return "ollama"
-        if self._env("DARKFACTORY_OPENAI_BASE_URL", "OPENAI_BASE_URL") and self._env(
-            "DARKFACTORY_OPENAI_MODEL", "OPENAI_MODEL"
-        ):
+        if config.openai_base_url and config.openai_model:
             return "openai_compatible"
-        if self._env("DARKFACTORY_API_URL"):
+        if config.api_url:
             return "http_backend"
         return "mock"
 
-    def mode_label(self) -> str:
-        provider = self.provider_name()
+    def target_label(self, settings: ProviderSettings | None = None) -> str:
+        config = settings or self.current_settings()
+        provider = self.provider_name(config)
         if provider == "ollama":
-            model = self._env("DARKFACTORY_OLLAMA_MODEL") or "未设置模型"
+            return config.ollama_model or config.ollama_url
+        if provider == "openai_compatible":
+            return config.openai_model or config.openai_base_url
+        if provider == "http_backend":
+            return config.api_url
+        return "mock"
+
+    def request_timeout_seconds(self, settings: ProviderSettings | None = None) -> int:
+        config = settings or self.current_settings()
+        return max(5, min(int(config.request_timeout_seconds), 300))
+
+    def mode_label(self, settings: ProviderSettings | None = None) -> str:
+        config = settings or self.current_settings()
+        provider = self.provider_name(config)
+        if provider == "ollama":
+            model = config.ollama_model or "未设置模型"
             return f"Local LLM (Ollama): {model}"
         if provider == "openai_compatible":
-            model = self._env("DARKFACTORY_OPENAI_MODEL", "OPENAI_MODEL") or "未设置模型"
+            model = config.openai_model or "未设置模型"
             return f"OpenAI-Compatible: {model}"
         if provider == "http_backend":
-            api_url = self._env("DARKFACTORY_API_URL")
-            return f"HTTP Backend: {api_url}"
+            return f"HTTP Backend: {config.api_url or '未设置地址'}"
         return "Mock"
 
     def reply(
@@ -53,37 +68,78 @@ class AssistantService:
         session: Session,
         recent_messages: Iterable[Message],
         user_message: str,
+        settings: ProviderSettings | None = None,
     ) -> str:
-        provider = self.provider_name()
+        config = settings or self.current_settings()
+        provider = self.provider_name(config)
+        timeout = float(self.request_timeout_seconds(config))
         if provider == "ollama":
             return self._reply_via_openai_compatible(
-                base_url=self._env("DARKFACTORY_OLLAMA_URL") or "http://127.0.0.1:11434/v1",
-                api_key=self._env("DARKFACTORY_OLLAMA_API_KEY") or "ollama",
-                model=self._env("DARKFACTORY_OLLAMA_MODEL"),
+                base_url=config.ollama_url or "http://127.0.0.1:11434/v1",
+                api_key=config.ollama_api_key or "ollama",
+                model=config.ollama_model,
                 project=project,
                 session=session,
                 recent_messages=recent_messages,
                 user_message=user_message,
+                timeout=timeout,
             )
         if provider == "openai_compatible":
             return self._reply_via_openai_compatible(
-                base_url=self._env("DARKFACTORY_OPENAI_BASE_URL", "OPENAI_BASE_URL"),
-                api_key=self._env("DARKFACTORY_OPENAI_API_KEY", "OPENAI_API_KEY"),
-                model=self._env("DARKFACTORY_OPENAI_MODEL", "OPENAI_MODEL"),
+                base_url=config.openai_base_url,
+                api_key=config.openai_api_key,
+                model=config.openai_model,
                 project=project,
                 session=session,
                 recent_messages=recent_messages,
                 user_message=user_message,
+                timeout=timeout,
             )
         if provider == "http_backend":
             return self._reply_via_http(
-                api_url=self._env("DARKFACTORY_API_URL"),
+                api_url=config.api_url,
                 project=project,
                 session=session,
                 recent_messages=recent_messages,
                 user_message=user_message,
+                timeout=timeout,
             )
         return self._reply_via_mock(project=project, user_message=user_message)
+
+    def health_check(self, settings: ProviderSettings | None = None) -> str:
+        config = settings or self.current_settings()
+        provider = self.provider_name(config)
+        timeout = min(15.0, float(self.request_timeout_seconds(config)))
+        if provider == "mock":
+            return "Mock provider is available."
+        if provider in {"ollama", "openai_compatible"}:
+            base_url = config.ollama_url if provider == "ollama" else config.openai_base_url
+            api_key = config.ollama_api_key if provider == "ollama" else config.openai_api_key
+            if not base_url:
+                raise ValueError("Provider requires a base URL")
+            endpoint = base_url.rstrip("/") + "/models"
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            import httpx
+
+            with httpx.Client(timeout=timeout) as client:
+                response = client.get(endpoint, headers=headers)
+                response.raise_for_status()
+            data = response.json()
+            models = data.get("data") or []
+            return f"Connected successfully. Models visible: {len(models)}"
+        if provider == "http_backend":
+            health_url = derive_http_health_url(config.api_url, config.api_health_url)
+            if not health_url:
+                raise ValueError("HTTP backend requires api_url or api_health_url")
+            import httpx
+
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                response = client.get(health_url)
+                response.raise_for_status()
+            return f"Connected successfully: {health_url}"
+        raise ValueError(f"Unsupported provider: {provider}")
 
     def _reply_via_http(
         self,
@@ -93,7 +149,10 @@ class AssistantService:
         session: Session,
         recent_messages: Iterable[Message],
         user_message: str,
+        timeout: float,
     ) -> str:
+        if not api_url:
+            raise ValueError("HTTP backend provider requires api_url")
         payload = {
             "project": asdict(project),
             "session": asdict(session),
@@ -102,7 +161,7 @@ class AssistantService:
         }
         import httpx
 
-        with httpx.Client(timeout=20.0) as client:
+        with httpx.Client(timeout=timeout) as client:
             response = client.post(api_url, json=payload)
             response.raise_for_status()
         data = response.json()
@@ -121,6 +180,7 @@ class AssistantService:
         session: Session,
         recent_messages: Iterable[Message],
         user_message: str,
+        timeout: float,
     ) -> str:
         if not base_url:
             raise ValueError("OpenAI-compatible provider requires base_url")
@@ -146,7 +206,7 @@ class AssistantService:
             headers["Authorization"] = f"Bearer {api_key}"
 
         endpoint = base_url.rstrip("/") + "/chat/completions"
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=timeout) as client:
             response = client.post(endpoint, json=payload, headers=headers)
             response.raise_for_status()
         data = response.json()
@@ -160,7 +220,6 @@ class AssistantService:
         if isinstance(content, str) and content.strip():
             return content.strip()
 
-        # Some compatible backends may return structured content arrays.
         if isinstance(content, list):
             parts: list[str] = []
             for item in content:
@@ -258,19 +317,14 @@ class AssistantService:
                 "把关键工况、约束和期望结果写进当前会话",
                 "使用快捷按钮先生成结构化结论，再人工补充追问",
             ]
-            impact = "该回答来自本地 mock 模式，可在接入后端后替换为真实分析结果。"
+            impact = "适合先用于结构化沟通和问题收敛，再逐步接入更强的数据分析能力。"
 
-        formatted_reasons = "\n".join(
-            f"{index}. {item}" for index, item in enumerate(reasons, start=1)
-        )
-        formatted_actions = "\n".join(
-            f"{index}. {item}" for index, item in enumerate(actions, start=1)
-        )
-
+        reasons_text = "\n".join(f"{index}. {item}" for index, item in enumerate(reasons, start=1))
+        actions_text = "\n".join(f"{index}. {item}" for index, item in enumerate(actions, start=1))
         return (
             f"【项目】\n{project.name}\n\n"
             f"【结论】\n{conclusion}\n\n"
-            f"【原因分析】\n{formatted_reasons}\n\n"
-            f"【优化建议】\n{formatted_actions}\n\n"
+            f"【原因分析】\n{reasons_text}\n\n"
+            f"【优化建议】\n{actions_text}\n\n"
             f"【影响评估】\n{impact}"
         )

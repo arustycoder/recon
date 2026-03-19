@@ -5,7 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from .models import Message, Project, Session
+from .config import DEFAULT_PROVIDER_KEYS
+from .models import Message, Project, ProviderSettings, RequestLog, Session
 
 
 DEFAULT_DB_PATH = Path.home() / ".darkfactory" / "darkfactory.db"
@@ -63,6 +64,18 @@ class Storage:
                 CREATE TABLE IF NOT EXISTS app_state (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS request_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    latency_ms INTEGER NOT NULL DEFAULT 0,
+                    detail TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE SET NULL
                 );
                 """
             )
@@ -196,6 +209,36 @@ class Storage:
                 (name, session_id),
             )
 
+    def update_session_metadata(
+        self,
+        session_id: int,
+        *,
+        name: str | None = None,
+        summary: str | None = None,
+    ) -> None:
+        fields: list[str] = []
+        values: list[str | int] = []
+        if name is not None:
+            fields.append("name = ?")
+            values.append(name)
+        if summary is not None:
+            fields.append("summary = ?")
+            values.append(summary)
+        if not fields:
+            return
+
+        fields.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(session_id)
+        with self.connect() as connection:
+            connection.execute(
+                f"""
+                UPDATE sessions
+                SET {", ".join(fields)}
+                WHERE id = ?
+                """,
+                tuple(values),
+            )
+
     def delete_session(self, session_id: int) -> None:
         with self.connect() as connection:
             connection.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
@@ -262,3 +305,57 @@ class Storage:
                 """,
                 (key, value),
             )
+
+    def get_provider_settings(self, defaults: ProviderSettings | None = None) -> ProviderSettings:
+        base = defaults or ProviderSettings()
+        values = {key: getattr(base, key) for key in DEFAULT_PROVIDER_KEYS}
+        for key in DEFAULT_PROVIDER_KEYS:
+            stored = self.get_state(f"provider.{key}")
+            if stored is None:
+                continue
+            if key == "request_timeout_seconds":
+                try:
+                    values[key] = max(5, min(int(stored), 300))
+                except ValueError:
+                    values[key] = base.request_timeout_seconds
+                continue
+            values[key] = stored
+        return ProviderSettings(**values)
+
+    def save_provider_settings(self, settings: ProviderSettings) -> None:
+        for key in DEFAULT_PROVIDER_KEYS:
+            value = getattr(settings, key)
+            self.set_state(f"provider.{key}", str(value))
+
+    def add_request_log(
+        self,
+        *,
+        session_id: int | None,
+        provider: str,
+        model: str,
+        status: str,
+        latency_ms: int,
+        detail: str = "",
+    ) -> int:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO request_logs (session_id, provider, model, status, latency_ms, detail)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (session_id, provider, model, status, latency_ms, detail),
+            )
+            return int(cursor.lastrowid)
+
+    def list_request_logs(self, limit: int = 100) -> list[RequestLog]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, session_id, provider, model, status, latency_ms, detail, created_at
+                FROM request_logs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [RequestLog(**dict(row)) for row in rows]

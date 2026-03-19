@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QSpinBox,
     QSplitter,
     QStackedWidget,
     QTreeWidget,
@@ -31,7 +33,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .models import Message, Project, Session
+from .config import provider_settings_from_env
+from .models import Message, Project, ProviderSettings, Session
 from .services import AssistantService
 from .storage import Storage
 
@@ -41,6 +44,8 @@ ROLE_LABELS = {
     "assistant": "系统",
 }
 
+GENERIC_SESSION_NAMES = {"默认对话", "新对话", "默认会话", "新会话"}
+
 
 @dataclass(slots=True)
 class TreeRef:
@@ -48,9 +53,26 @@ class TreeRef:
     identifier: int
 
 
+@dataclass(slots=True)
+class WorkerResult:
+    provider: str
+    target: str
+    latency_ms: int
+    content: str = ""
+    error: str = ""
+
+
+@dataclass(slots=True)
+class RequestContext:
+    session_id: int
+    provider: str
+    target: str
+    started_at: float
+
+
 class AssistantWorker(QThread):
-    succeeded = Signal(str)
-    failed = Signal(str)
+    succeeded = Signal(object)
+    failed = Signal(object)
 
     def __init__(
         self,
@@ -69,6 +91,9 @@ class AssistantWorker(QThread):
         self._user_message = user_message
 
     def run(self) -> None:
+        started_at = perf_counter()
+        provider = self._service.provider_name()
+        target = self._service.target_label()
         try:
             reply = self._service.reply(
                 project=self._project,
@@ -77,9 +102,41 @@ class AssistantWorker(QThread):
                 user_message=self._user_message,
             )
         except Exception as exc:  # pragma: no cover - Qt thread path
+            self.failed.emit(
+                WorkerResult(
+                    provider=provider,
+                    target=target,
+                    latency_ms=int((perf_counter() - started_at) * 1000),
+                    error=str(exc),
+                )
+            )
+            return
+        self.succeeded.emit(
+            WorkerResult(
+                provider=provider,
+                target=target,
+                latency_ms=int((perf_counter() - started_at) * 1000),
+                content=reply,
+            )
+        )
+
+
+class HealthCheckWorker(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, service: AssistantService, settings: ProviderSettings) -> None:
+        super().__init__()
+        self._service = service
+        self._settings = settings
+
+    def run(self) -> None:
+        try:
+            message = self._service.health_check(self._settings)
+        except Exception as exc:  # pragma: no cover - Qt thread path
             self.failed.emit(str(exc))
             return
-        self.succeeded.emit(reply)
+        self.succeeded.emit(message)
 
 
 class MessageCard(QWidget):
@@ -184,6 +241,164 @@ class ProjectDialog(QDialog):
         }
 
 
+class SettingsDialog(QDialog):
+    def __init__(
+        self,
+        *,
+        service: AssistantService,
+        settings: ProviderSettings,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._health_worker: HealthCheckWorker | None = None
+
+        self.setWindowTitle("模型与连接设置")
+        self.resize(520, 420)
+
+        self.provider_input = QComboBox()
+        self.provider_input.addItem("Mock", "mock")
+        self.provider_input.addItem("Ollama", "ollama")
+        self.provider_input.addItem("OpenAI-Compatible", "openai_compatible")
+        self.provider_input.addItem("HTTP Backend", "http_backend")
+        provider_index = self.provider_input.findData(settings.provider)
+        self.provider_input.setCurrentIndex(provider_index if provider_index >= 0 else 0)
+        self.provider_input.currentIndexChanged.connect(self.on_provider_changed)
+
+        self.timeout_input = QSpinBox()
+        self.timeout_input.setRange(5, 300)
+        self.timeout_input.setValue(settings.request_timeout_seconds)
+        self.timeout_input.setSuffix(" 秒")
+
+        self.provider_stack = QStackedWidget()
+
+        self.ollama_url_input = QLineEdit(settings.ollama_url)
+        self.ollama_model_input = QLineEdit(settings.ollama_model)
+        self.ollama_api_key_input = QLineEdit(settings.ollama_api_key)
+        self.ollama_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        self.openai_base_url_input = QLineEdit(settings.openai_base_url)
+        self.openai_model_input = QLineEdit(settings.openai_model)
+        self.openai_api_key_input = QLineEdit(settings.openai_api_key)
+        self.openai_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        self.api_url_input = QLineEdit(settings.api_url)
+        self.api_health_url_input = QLineEdit(settings.api_health_url)
+
+        self.provider_stack.addWidget(self._build_mock_page())
+        self.provider_stack.addWidget(self._build_ollama_page())
+        self.provider_stack.addWidget(self._build_openai_page())
+        self.provider_stack.addWidget(self._build_http_page())
+
+        self.connection_status = QLabel("可先测试当前配置，再保存。")
+        self.connection_status.setWordWrap(True)
+        self.connection_status.setStyleSheet("color: #5f6b7a;")
+
+        self.test_button = QPushButton("测试连接")
+        self.test_button.clicked.connect(self.test_connection)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        header_form = QFormLayout()
+        header_form.addRow("Provider", self.provider_input)
+        header_form.addRow("请求超时", self.timeout_input)
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.test_button)
+        button_row.addStretch(1)
+        button_row.addWidget(buttons)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(header_form)
+        layout.addWidget(self.provider_stack)
+        layout.addWidget(self.connection_status)
+        layout.addLayout(button_row)
+
+        self.on_provider_changed()
+
+    def _build_mock_page(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        hint = QLabel("Mock 模式不需要额外配置，适合本地演示与 UI 测试。")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+        return widget
+
+    def _build_ollama_page(self) -> QWidget:
+        widget = QWidget()
+        form = QFormLayout(widget)
+        form.addRow("Base URL", self.ollama_url_input)
+        form.addRow("Model", self.ollama_model_input)
+        form.addRow("API Key", self.ollama_api_key_input)
+        return widget
+
+    def _build_openai_page(self) -> QWidget:
+        widget = QWidget()
+        form = QFormLayout(widget)
+        form.addRow("Base URL", self.openai_base_url_input)
+        form.addRow("Model", self.openai_model_input)
+        form.addRow("API Key", self.openai_api_key_input)
+        return widget
+
+    def _build_http_page(self) -> QWidget:
+        widget = QWidget()
+        form = QFormLayout(widget)
+        form.addRow("API URL", self.api_url_input)
+        form.addRow("Health URL", self.api_health_url_input)
+        return widget
+
+    def on_provider_changed(self) -> None:
+        provider = self.provider_input.currentData()
+        index_map = {
+            "mock": 0,
+            "ollama": 1,
+            "openai_compatible": 2,
+            "http_backend": 3,
+        }
+        self.provider_stack.setCurrentIndex(index_map.get(provider, 0))
+        self.connection_status.setText("可先测试当前配置，再保存。")
+        self.connection_status.setStyleSheet("color: #5f6b7a;")
+
+    def values(self) -> ProviderSettings:
+        provider = str(self.provider_input.currentData() or "mock")
+        return ProviderSettings(
+            provider=provider,
+            ollama_url=self.ollama_url_input.text().strip() or "http://127.0.0.1:11434/v1",
+            ollama_model=self.ollama_model_input.text().strip(),
+            ollama_api_key=self.ollama_api_key_input.text().strip() or "ollama",
+            openai_base_url=self.openai_base_url_input.text().strip(),
+            openai_api_key=self.openai_api_key_input.text().strip(),
+            openai_model=self.openai_model_input.text().strip(),
+            api_url=self.api_url_input.text().strip(),
+            api_health_url=self.api_health_url_input.text().strip(),
+            request_timeout_seconds=int(self.timeout_input.value()),
+        )
+
+    def test_connection(self) -> None:
+        self.test_button.setEnabled(False)
+        self.connection_status.setText("正在测试连接...")
+        self.connection_status.setStyleSheet("color: #5f6b7a;")
+        self._health_worker = HealthCheckWorker(self._service, self.values())
+        self._health_worker.succeeded.connect(self.on_test_success)
+        self._health_worker.failed.connect(self.on_test_failure)
+        self._health_worker.finished.connect(lambda: self.test_button.setEnabled(True))
+        self._health_worker.finished.connect(lambda: setattr(self, "_health_worker", None))
+        self._health_worker.start()
+
+    def on_test_success(self, message: str) -> None:
+        self.connection_status.setText(message)
+        self.connection_status.setStyleSheet("color: #1d6f42;")
+
+    def on_test_failure(self, message: str) -> None:
+        self.connection_status.setText(message)
+        self.connection_status.setStyleSheet("color: #b42318;")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, storage: Storage, assistant: AssistantService) -> None:
         super().__init__()
@@ -192,9 +407,17 @@ class MainWindow(QMainWindow):
         self.current_project: Project | None = None
         self.current_session: Session | None = None
         self.worker: AssistantWorker | None = None
+        self.workers: dict[int, AssistantWorker] = {}
+        self.request_contexts: dict[int, RequestContext] = {}
+        self.canceled_request_ids: set[int] = set()
+        self.request_counter = 0
+        self.is_busy = False
+        self.active_request_id: int | None = None
+        self.pending_request_id: int | None = None
         self.pending_session_id: int | None = None
         self.pending_message_item: QListWidgetItem | None = None
         self.pending_message_text = "正在思考，请稍候..."
+        self.closing_after_requests = False
 
         self.slow_response_timer = QTimer(self)
         self.slow_response_timer.setSingleShot(True)
@@ -233,6 +456,9 @@ class MainWindow(QMainWindow):
 
         self.send_button = QPushButton("发送")
         self.send_button.clicked.connect(self.send_current_input)
+
+        self.cancel_button = QPushButton("停止等待")
+        self.cancel_button.clicked.connect(self.cancel_active_request)
 
         self.new_project_button = QPushButton("新建项目")
         self.new_project_button.clicked.connect(self.create_project)
@@ -298,6 +524,7 @@ class MainWindow(QMainWindow):
 
         input_row = QHBoxLayout()
         input_row.addWidget(self.input_line, stretch=1)
+        input_row.addWidget(self.cancel_button)
         input_row.addWidget(self.send_button)
         layout.addLayout(input_row)
 
@@ -335,11 +562,17 @@ class MainWindow(QMainWindow):
         edit_project_action = QAction("编辑项目", self)
         edit_project_action.triggered.connect(self.edit_current_project)
 
+        settings_action = QAction("模型设置", self)
+        settings_action.triggered.connect(self.open_settings_dialog)
+
         menubar = self.menuBar()
         file_menu = menubar.addMenu("文件")
         file_menu.addAction(create_project_action)
         file_menu.addAction(create_session_action)
         file_menu.addAction(edit_project_action)
+
+        tools_menu = menubar.addMenu("工具")
+        tools_menu.addAction(settings_action)
 
         self._set_status_message()
 
@@ -354,7 +587,8 @@ class MainWindow(QMainWindow):
             project_item.setExpanded(True)
 
             for session in self.storage.list_sessions(project.id):
-                session_item = QTreeWidgetItem([session.name])
+                session_label = session.name
+                session_item = QTreeWidgetItem([session_label])
                 session_item.setData(0, Qt.ItemDataRole.UserRole, TreeRef("session", session.id))
                 project_item.addChild(session_item)
                 if previous_session_id == session.id:
@@ -420,6 +654,12 @@ class MainWindow(QMainWindow):
         self.message_list.clear()
         for message in self.storage.list_messages(session.id):
             self.append_message(message.role, message.content, timestamp=message.created_at)
+        if self.pending_session_id == session.id and self.pending_message_item is None:
+            self.pending_message_item = self.append_message(
+                "assistant",
+                self.pending_message_text,
+                timestamp="处理中",
+            )
         self.update_message_stack()
         self.update_interaction_state()
 
@@ -488,33 +728,50 @@ class MainWindow(QMainWindow):
         else:
             self.message_stack.setCurrentWidget(self.empty_state)
 
-    def update_interaction_state(self, *, busy: bool = False) -> None:
+    def update_interaction_state(self) -> None:
         has_session = self.current_session is not None
-        self.send_button.setEnabled(has_session and not busy)
-        self.input_line.setEnabled(has_session and not busy)
-        self.new_project_button.setEnabled(not busy)
-        self.new_session_button.setEnabled(self.current_project is not None and not busy)
+        self.send_button.setEnabled(has_session and not self.is_busy)
+        self.input_line.setEnabled(has_session and not self.is_busy)
+        self.cancel_button.setEnabled(self.is_busy)
+        self.new_project_button.setEnabled(not self.is_busy)
+        self.new_session_button.setEnabled(self.current_project is not None and not self.is_busy)
         for button in self.quick_buttons:
-            button.setEnabled(has_session and not busy)
+            button.setEnabled(has_session and not self.is_busy)
 
-    def start_pending_response(self, session_id: int) -> None:
+    def set_busy(self, busy: bool) -> None:
+        self.is_busy = busy
+        self.update_interaction_state()
+
+    def next_request_id(self) -> int:
+        self.request_counter += 1
+        return self.request_counter
+
+    def start_pending_response(self, request_id: int, session_id: int) -> None:
+        self.active_request_id = request_id
+        self.pending_request_id = request_id
         self.pending_session_id = session_id
-        self.pending_message_item = self.append_message(
-            "assistant",
-            self.pending_message_text,
-            timestamp="处理中",
-        )
+        if self.current_session is not None and self.current_session.id == session_id:
+            self.pending_message_item = self.append_message(
+                "assistant",
+                self.pending_message_text,
+                timestamp="处理中",
+            )
+        else:
+            self.pending_message_item = None
         self.slow_response_timer.start(8000)
         self._set_status_message("等待模型回复")
 
-    def clear_pending_response(self, session_id: int) -> None:
-        if self.pending_session_id != session_id:
+    def clear_pending_response(self, request_id: int, session_id: int) -> None:
+        if self.pending_request_id != request_id:
             return
         self.slow_response_timer.stop()
         if self.current_session is not None and self.current_session.id == session_id:
             self.remove_message_item(self.pending_message_item)
         self.pending_message_item = None
+        self.pending_request_id = None
         self.pending_session_id = None
+        if self.active_request_id == request_id:
+            self.active_request_id = None
         self._set_status_message()
 
     def on_slow_response_timeout(self) -> None:
@@ -529,6 +786,54 @@ class MainWindow(QMainWindow):
             timestamp="处理中",
         )
         self._set_status_message("请求耗时较长")
+
+    def summarize_session_title(self, message: str) -> str:
+        compact = " ".join(part for part in message.replace("\n", " ").split() if part).strip()
+        if not compact:
+            return "新对话"
+        keyword_titles = [
+            ("蒸汽", "蒸汽不足分析"),
+            ("负荷", "负荷优化建议"),
+            ("能效", "能效诊断"),
+            ("锅炉", "锅炉运行分析"),
+            ("汽机", "汽机运行分析"),
+        ]
+        for keyword, title in keyword_titles:
+            if keyword in compact:
+                return title
+
+        trimmed = compact
+        for prefix in ("请结合当前项目背景，", "请", "帮我", "帮忙", "分析", "一下", "一下子"):
+            if trimmed.startswith(prefix):
+                trimmed = trimmed.removeprefix(prefix).strip()
+        trimmed = trimmed.rstrip("。！？!?，,；;：:")
+        if not trimmed:
+            trimmed = compact
+        if len(trimmed) > 18:
+            trimmed = trimmed[:18].rstrip()
+        return trimmed or "新对话"
+
+    def apply_auto_session_title(self, session_id: int, message: str) -> None:
+        session = self.storage.get_session(session_id)
+        if session is None:
+            return
+        title = self.summarize_session_title(message)
+        new_name = title if session.name in GENERIC_SESSION_NAMES else None
+        new_summary = title if not session.summary.strip() else None
+        self.storage.update_session_metadata(session_id, name=new_name, summary=new_summary)
+
+    def open_settings_dialog(self) -> None:
+        dialog = SettingsDialog(
+            service=self.assistant,
+            settings=self.assistant.current_settings(),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        settings = dialog.values()
+        self.storage.save_provider_settings(settings)
+        self.assistant.update_settings(settings)
+        self._set_status_message("设置已保存")
 
     def create_project(self) -> None:
         dialog = ProjectDialog(self)
@@ -706,6 +1011,8 @@ class MainWindow(QMainWindow):
         self.send_current_input()
 
     def send_current_input(self) -> None:
+        if self.is_busy:
+            return
         if self.current_project is None or self.current_session is None:
             QMessageBox.information(self, "提示", "请先创建并选择一个对话。")
             return
@@ -717,66 +1024,150 @@ class MainWindow(QMainWindow):
         session_id = self.current_session.id
         project = self.current_project
         session = self.current_session
+        request_id = self.next_request_id()
+        provider = self.assistant.provider_name()
+        target = self.assistant.target_label()
 
+        self.apply_auto_session_title(session_id, message)
         self.storage.add_message(session_id, "user", message)
-        self.append_message("user", message)
+        self.refresh_tree()
+        if self.current_session is not None and self.current_session.id == session_id:
+            self.load_session(session_id)
         self.input_line.clear()
         self.set_busy(True)
-        self.start_pending_response(session_id)
+
+        self.request_contexts[request_id] = RequestContext(
+            session_id=session_id,
+            provider=provider,
+            target=target,
+            started_at=perf_counter(),
+        )
+        self.start_pending_response(request_id, session_id)
 
         recent_messages = self.storage.list_messages(session_id)[-12:]
-        self.worker = AssistantWorker(
+        worker = AssistantWorker(
             self.assistant,
             project=project,
             session=session,
             recent_messages=recent_messages,
             user_message=message,
         )
-        self.worker.succeeded.connect(
-            lambda content, request_session_id=session_id: self.on_assistant_reply(
-                request_session_id,
-                content,
+        self.worker = worker
+        self.workers[request_id] = worker
+        worker.succeeded.connect(
+            lambda result, request_session_id=session_id, current_request_id=request_id: (
+                self.on_assistant_reply(current_request_id, request_session_id, result)
             )
         )
-        self.worker.failed.connect(
-            lambda error_message, request_session_id=session_id: self.on_assistant_error(
-                request_session_id,
-                error_message,
+        worker.failed.connect(
+            lambda result, request_session_id=session_id, current_request_id=request_id: (
+                self.on_assistant_error(current_request_id, request_session_id, result)
             )
         )
-        self.worker.finished.connect(
-            lambda request_session_id=session_id: self.on_request_finished(request_session_id)
+        worker.finished.connect(
+            lambda request_session_id=session_id, current_request_id=request_id: (
+                self.on_request_finished(current_request_id, request_session_id)
+            )
         )
-        self.worker.start()
+        worker.start()
 
-    def on_request_finished(self, session_id: int) -> None:
-        self.clear_pending_response(session_id)
+    def cancel_active_request(self) -> None:
+        request_id = self.active_request_id
+        if request_id is None:
+            return
+
+        context = self.request_contexts.get(request_id)
+        session_id = context.session_id if context else self.pending_session_id
+        if session_id is None:
+            return
+
+        self.canceled_request_ids.add(request_id)
+        elapsed_ms = (
+            int((perf_counter() - context.started_at) * 1000)
+            if context is not None
+            else 0
+        )
+        cancel_text = "【已取消】\n已停止等待本次模型回复。"
+        self.storage.add_message(session_id, "assistant", cancel_text)
+        if context is not None:
+            self.storage.add_request_log(
+                session_id=session_id,
+                provider=context.provider,
+                model=context.target,
+                status="canceled",
+                latency_ms=elapsed_ms,
+                detail="User canceled waiting for the response.",
+            )
+        if self.current_session is not None and self.current_session.id == session_id:
+            self.load_session(session_id)
+        self.clear_pending_response(request_id, session_id)
         self.set_busy(False)
-        self.worker = None
+        self._set_status_message("已取消等待")
 
-    def on_assistant_reply(self, session_id: int, content: str) -> None:
-        self.storage.add_message(session_id, "assistant", content)
+    def on_request_finished(self, request_id: int, session_id: int) -> None:
+        worker = self.workers.pop(request_id, None)
+        if self.worker is worker:
+            self.worker = None
+        self.clear_pending_response(request_id, session_id)
+        self.request_contexts.pop(request_id, None)
+        self.canceled_request_ids.discard(request_id)
+        if self.active_request_id is None:
+            self.set_busy(False)
+        if self.closing_after_requests and not self.workers:
+            self.close()
+
+    def on_assistant_reply(self, request_id: int, session_id: int, result: WorkerResult) -> None:
+        if request_id in self.canceled_request_ids:
+            return
+        self.storage.add_message(session_id, "assistant", result.content)
+        self.storage.add_request_log(
+            session_id=session_id,
+            provider=result.provider,
+            model=result.target,
+            status="success",
+            latency_ms=result.latency_ms,
+            detail="",
+        )
         self.refresh_tree()
         if self.current_session is not None and self.current_session.id == session_id:
             self.load_session(session_id)
+        self._set_status_message(f"最近一次请求 {result.latency_ms} ms")
 
-    def on_assistant_error(self, session_id: int, message: str) -> None:
-        error_text = f"【错误】\n{message}"
+    def on_assistant_error(self, request_id: int, session_id: int, result: WorkerResult) -> None:
+        if request_id in self.canceled_request_ids:
+            return
+        error_text = f"【错误】\n{result.error}"
         self.storage.add_message(session_id, "assistant", error_text)
-        if self.current_session is not None and self.current_session.id == session_id:
-            self.clear_pending_response(session_id)
-            self.append_message("assistant", error_text)
+        self.storage.add_request_log(
+            session_id=session_id,
+            provider=result.provider,
+            model=result.target,
+            status="error",
+            latency_ms=result.latency_ms,
+            detail=result.error,
+        )
         self.refresh_tree()
-        QMessageBox.warning(self, "请求失败", message)
+        if self.current_session is not None and self.current_session.id == session_id:
+            self.load_session(session_id)
+        QMessageBox.warning(self, "请求失败", result.error)
 
-    def set_busy(self, busy: bool) -> None:
-        self.update_interaction_state(busy=busy)
+    def closeEvent(self, event: QCloseEvent) -> None:
+        running_workers = [worker for worker in self.workers.values() if worker.isRunning()]
+        if not running_workers:
+            super().closeEvent(event)
+            return
+        self.closing_after_requests = True
+        if self.active_request_id is not None:
+            self.cancel_active_request()
+        self.hide()
+        event.ignore()
 
 
 def build_main_window() -> MainWindow:
     storage = Storage()
     storage.bootstrap()
-    assistant = AssistantService()
+    settings = storage.get_provider_settings(provider_settings_from_env())
+    assistant = AssistantService(settings)
     return MainWindow(storage=storage, assistant=assistant)
 
 
