@@ -190,6 +190,13 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(logs[0].status, "canceled")
         self.assertFalse(self.window.is_busy)
 
+    def test_action_button_switches_between_send_and_cancel_states(self) -> None:
+        self.assertEqual(self.window.action_button.toolTip(), "发送")
+
+        self.window.set_busy(True)
+
+        self.assertEqual(self.window.action_button.toolTip(), "停止等待")
+
     def test_request_log_dialog_shows_latest_logs(self) -> None:
         self.assertIsNotNone(self.window.current_session)
         self.storage.add_request_log(

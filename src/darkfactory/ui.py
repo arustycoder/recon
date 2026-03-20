@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
 
-from PySide6.QtCore import QEvent, QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, QThread, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -873,11 +873,26 @@ class MainWindow(QMainWindow):
         self.input_line = ChatInput()
         self.input_line.send_requested.connect(self.send_current_input)
 
-        self.send_button = QPushButton("发送")
-        self.send_button.clicked.connect(self.send_current_input)
-
-        self.cancel_button = QPushButton("停止等待")
-        self.cancel_button.clicked.connect(self.cancel_active_request)
+        self.action_button = QPushButton()
+        self.action_button.setFixedSize(40, 40)
+        self.action_button.setIconSize(QSize(20, 20))
+        self.action_button.clicked.connect(self.on_action_button_clicked)
+        self.action_button.setStyleSheet(
+            """
+            QPushButton {
+                background: #111827;
+                color: white;
+                border: none;
+                border-radius: 20px;
+            }
+            QPushButton:disabled {
+                background: #9ca3af;
+            }
+            QPushButton:hover:!disabled {
+                background: #1f2937;
+            }
+            """
+        )
 
         self.new_project_button = QPushButton("新建项目")
         self.new_project_button.clicked.connect(self.create_project)
@@ -946,8 +961,7 @@ class MainWindow(QMainWindow):
 
         input_row = QHBoxLayout()
         input_row.addWidget(self.input_line, stretch=1)
-        input_row.addWidget(self.cancel_button)
-        input_row.addWidget(self.send_button)
+        input_row.addWidget(self.action_button)
         layout.addLayout(input_row)
 
         return widget
@@ -1176,16 +1190,66 @@ class MainWindow(QMainWindow):
 
     def update_interaction_state(self) -> None:
         has_session = self.current_session is not None
-        self.send_button.setEnabled(has_session and not self.is_busy)
         self.input_line.setEnabled(has_session and not self.is_busy)
-        self.cancel_button.setEnabled(self.is_busy)
+        self.action_button.setEnabled(has_session)
         self.new_project_button.setEnabled(not self.is_busy)
         self.new_session_button.setEnabled(self.current_project is not None and not self.is_busy)
         self.scene_tree.setEnabled(has_session and not self.is_busy)
+        self.update_action_button()
 
     def set_busy(self, busy: bool) -> None:
         self.is_busy = busy
         self.update_interaction_state()
+
+    def on_action_button_clicked(self) -> None:
+        if self.is_busy:
+            self.cancel_active_request()
+            return
+        self.send_current_input()
+
+    def update_action_button(self) -> None:
+        if self.is_busy:
+            self.action_button.setIcon(self.build_coin_stop_icon())
+            self.action_button.setToolTip("停止等待")
+            return
+        self.action_button.setIcon(self.build_send_icon())
+        self.action_button.setToolTip("发送")
+
+    def build_send_icon(self) -> QIcon:
+        pixmap = QPixmap(20, 20)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("#ffffff"))
+        pen.setWidth(2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawLine(10, 15, 10, 5)
+        arrow = QPolygonF(
+            [
+                QPointF(5, 9),
+                QPointF(10, 4),
+                QPointF(15, 9),
+            ]
+        )
+        painter.setBrush(QBrush(QColor("#ffffff")))
+        painter.drawPolygon(arrow)
+        painter.end()
+        return QIcon(pixmap)
+
+    def build_coin_stop_icon(self) -> QIcon:
+        pixmap = QPixmap(20, 20)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor("#000000")))
+        painter.drawEllipse(QRectF(2, 2, 16, 16))
+        painter.setBrush(QBrush(QColor("#ffffff")))
+        painter.drawRect(QRectF(7, 7, 6, 6))
+        painter.end()
+        return QIcon(pixmap)
 
     def next_request_id(self) -> int:
         self.request_counter += 1
