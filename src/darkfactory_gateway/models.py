@@ -96,7 +96,7 @@ class GatewayCancelResponse(BaseModel):
 
 class GatewayProviderHealthResponse(BaseModel):
     provider_id: str
-    status: Literal["healthy", "degraded", "cooldown", "disabled", "misconfigured", "unreachable"]
+    status: Literal["healthy", "degraded", "cooldown", "disabled", "misconfigured", "unreachable", "rate_limited"]
     detail: str
     consecutive_failures: int = 0
     cooldown_remaining_seconds: int = 0

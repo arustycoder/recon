@@ -191,6 +191,41 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["detail"], "sync provider failed")
 
+    def test_chat_returns_429_when_provider_is_rate_limited(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="limited",
+                    kind="openai_compatible",
+                    label="Limited",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://limited.invalid/v1",
+                        openai_model="limited-model",
+                    ),
+                    default=True,
+                    priority=1,
+                    cooldown_seconds=60,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "rate-limit.db"),
+            adapter_factory=MappingAdapterFactory(
+                {"openai_compatible": RaisingAdapter(error_text="429 Too Many Requests")}
+            ),
+        )
+        client = TestClient(create_app(service))
+
+        response = client.post("/api/chat", json=sample_request() | {"provider_id": "limited"})
+
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("429 Too Many Requests", response.json()["detail"])
+        health = service.provider_health("limited")
+        self.assertEqual(health.status, "rate_limited")
+        self.assertIn("rate limited", health.detail)
+
     def test_stream_returns_sse_events(self) -> None:
         with self.client.stream("POST", "/api/chat/stream", json=sample_request()) as response:
             content = "".join(response.iter_text())
@@ -461,6 +496,51 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(before.status, "cooldown")
         self.assertEqual(reset.status, "reset")
         self.assertEqual(after.status, "healthy")
+
+    def test_rate_limited_provider_enters_immediate_cooldown_without_fallback(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="limited",
+                    kind="openai_compatible",
+                    label="Limited",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://limited.invalid/v1",
+                        openai_model="limited-model",
+                    ),
+                    default=True,
+                    priority=1,
+                    cooldown_seconds=60,
+                    max_consecutive_failures=3,
+                ),
+                ProviderRecord(
+                    id="mock",
+                    kind="mock",
+                    label="Mock",
+                    settings=ProviderSettings(provider="mock"),
+                    priority=2,
+                ),
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "rate-limit-cooldown.db"),
+            adapter_factory=MappingAdapterFactory(
+                {
+                    "openai_compatible": RaisingAdapter(error_text="429 Too Many Requests"),
+                    "mock": FakeAdapter(reply_text="should not run"),
+                }
+            ),
+        )
+
+        with self.assertRaises(RuntimeError) as error:
+            service.chat(service_request(provider_id="limited", provider_strategy="default"))
+
+        self.assertIn("429 Too Many Requests", str(error.exception))
+        health = service.provider_health("limited")
+        self.assertEqual(health.status, "rate_limited")
+        self.assertIn("rate limited", health.detail)
 
     def test_provider_health_reports_misconfigured(self) -> None:
         registry = ProviderRegistry(

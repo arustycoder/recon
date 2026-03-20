@@ -75,6 +75,7 @@ class RequestState:
 class ProviderCircuitState:
     consecutive_failures: int = 0
     cooldown_until: float = 0.0
+    reason: str = ""
 
 
 class RequestTracker:
@@ -319,10 +320,16 @@ class GatewayService:
                 cooldown_remaining_seconds=0,
             )
         if remaining > 0:
+            status = "rate_limited" if circuit.reason == "rate_limited" else "cooldown"
+            detail = (
+                f"Provider is rate limited and cooling down for {remaining}s"
+                if status == "rate_limited"
+                else f"Provider is cooling down for {remaining}s"
+            )
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
-                status="cooldown",
-                detail=f"Provider is cooling down for {remaining}s",
+                status=status,
+                detail=detail,
                 consecutive_failures=circuit.consecutive_failures,
                 cooldown_remaining_seconds=remaining,
             )
@@ -409,7 +416,12 @@ class GatewayService:
                     continue
                 cooldown_remaining = self._provider_cooldown_remaining(provider.id)
                 if cooldown_remaining > 0:
-                    detail = f"Provider is cooling down for {cooldown_remaining}s"
+                    circuit = self._provider_circuits.get(provider.id, ProviderCircuitState())
+                    detail = (
+                        f"Provider is rate limited and cooling down for {cooldown_remaining}s"
+                        if circuit.reason == "rate_limited"
+                        else f"Provider is cooling down for {cooldown_remaining}s"
+                    )
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
@@ -468,7 +480,7 @@ class GatewayService:
                     break
                 except Exception as exc:
                     last_error = exc
-                    self._record_provider_failure(provider.id, provider)
+                    self._record_provider_failure(provider.id, provider, str(exc))
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
@@ -558,7 +570,12 @@ class GatewayService:
                     continue
                 cooldown_remaining = self._provider_cooldown_remaining(provider.id)
                 if cooldown_remaining > 0:
-                    detail = f"Provider is cooling down for {cooldown_remaining}s"
+                    circuit = self._provider_circuits.get(provider.id, ProviderCircuitState())
+                    detail = (
+                        f"Provider is rate limited and cooling down for {cooldown_remaining}s"
+                        if circuit.reason == "rate_limited"
+                        else f"Provider is cooling down for {cooldown_remaining}s"
+                    )
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
@@ -676,7 +693,7 @@ class GatewayService:
                     self._persist_request_state(request_id)
                     return
                 except Exception as exc:
-                    self._record_provider_failure(provider.id, provider)
+                    self._record_provider_failure(provider.id, provider, str(exc))
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
@@ -869,11 +886,20 @@ class GatewayService:
     def _record_provider_success(self, provider_id: str) -> None:
         self._provider_circuits[provider_id] = ProviderCircuitState()
 
-    def _record_provider_failure(self, provider_id: str, provider: ProviderRecord) -> None:
+    def _record_provider_failure(
+        self,
+        provider_id: str,
+        provider: ProviderRecord,
+        detail: str = "",
+    ) -> None:
         state = self._provider_circuits.get(provider_id, ProviderCircuitState())
         state.consecutive_failures += 1
-        if state.consecutive_failures >= provider.max_consecutive_failures:
+        if self._is_rate_limit_detail(detail):
             state.cooldown_until = time.time() + provider.cooldown_seconds
+            state.reason = "rate_limited"
+        elif state.consecutive_failures >= provider.max_consecutive_failures:
+            state.cooldown_until = time.time() + provider.cooldown_seconds
+            state.reason = "cooldown"
         self._provider_circuits[provider_id] = state
 
     def _provider_cooldown_remaining(self, provider_id: str) -> int:
@@ -902,9 +928,15 @@ class GatewayService:
 
     def _classify_provider_exception(self, exc: Exception) -> str:
         text = str(exc).lower()
+        if self._is_rate_limit_detail(text):
+            return "rate_limited"
         if any(token in text for token in ("connect", "timeout", "dns", "network", "refused")):
             return "unreachable"
         return "degraded"
+
+    def _is_rate_limit_detail(self, detail: str) -> bool:
+        text = detail.lower()
+        return "429" in text or "too many requests" in text or "rate limit" in text
 
     def _estimate_cost_usd(self, provider: ProviderRecord, metrics: ResponseMetrics) -> float:
         prompt_cost = (

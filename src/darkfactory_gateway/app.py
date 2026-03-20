@@ -20,6 +20,13 @@ from .models import (
 from .service import GatewayService
 
 
+def _gateway_error_status_code(detail: str) -> int:
+    text = detail.lower()
+    if "429" in text or "too many requests" in text or "rate limit" in text:
+        return 429
+    return 502
+
+
 def create_app(service: GatewayService | None = None) -> FastAPI:
     load_env()
     gateway = service or GatewayService()
@@ -89,7 +96,10 @@ def create_app(service: GatewayService | None = None) -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=_gateway_error_status_code(str(exc)),
+                detail=str(exc),
+            ) from exc
 
     @app.post("/api/chat/stream")
     def stream(request: GatewayChatRequest) -> StreamingResponse:
