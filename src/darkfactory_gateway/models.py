@@ -64,12 +64,15 @@ class GatewayProviderInfo(BaseModel):
     priority: int = 100
     tags: list[str] = Field(default_factory=list)
     default_skill_ids: list[str] = Field(default_factory=list)
+    cooldown_seconds: int = 0
+    max_consecutive_failures: int = 0
 
 
 class GatewaySkillInfo(BaseModel):
     id: str
     label: str
     description: str
+    phase: str = "prompt_shaping"
     enabled_by_default: bool = False
     parameter_keys: list[str] = Field(default_factory=list)
 
@@ -95,7 +98,10 @@ class GatewayRequestInfo(BaseModel):
     request_id: str
     client_request_id: str = ""
     status: str
+    phase: str = ""
     provider_id: str = ""
     attempted_provider_ids: list[str] = Field(default_factory=list)
     skill_ids: list[str] = Field(default_factory=list)
     error_detail: str = ""
+    created_at: str = ""
+    updated_at: str = ""

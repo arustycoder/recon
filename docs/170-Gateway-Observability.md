@@ -8,15 +8,16 @@ Give the gateway its own request-level visibility so fallback and skill behavior
 
 ### Included
 
-- in-memory request tracker
+- SQLite-backed gateway request records
+- in-memory request tracker for active requests
 - request lifecycle status
+- request phase tracking
 - attempted provider ids
 - client request correlation id
 - request listing and detail endpoints
 
 ### Excluded
 
-- durable database storage
 - cross-process shared state
 - metrics export to Prometheus or OTLP
 - cost accounting
@@ -31,14 +32,17 @@ Tracked fields:
 - `request_id`
 - `client_request_id`
 - `status`
+- `phase`
 - `provider_id`
 - `attempted_provider_ids`
 - `skill_ids`
 - `error_detail`
+- `created_at`
+- `updated_at`
 
 ## Implementation Notes
 
-- the request tracker currently keeps active requests and a bounded recent history in memory
+- active request state is mirrored into the shared SQLite store so the gateway can be inspected after a process restart
 - gateway request ids are also suitable for downstream `X-Client-Request-Id` propagation when the target provider supports correlation headers
 - this is enough for local debugging and integration testing, but not enough for production audit or analytics
-- later phases should move request history, metrics, and provider error rates into persistent gateway storage
+- later phases should add metrics export, retention policy, and gateway-side token/cost aggregation

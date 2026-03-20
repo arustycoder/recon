@@ -18,15 +18,13 @@ The gateway now has three meaningful layers instead of one:
 
 ### What is still intentionally missing
 
-- persistent gateway-side request storage
 - background job execution
-- provider cooldown or circuit breaking
 - authentication, quotas, and audit policy
 
 ### Risks
 
 - fallback can hide flaky providers if gateway-side logs are not surfaced clearly
-- prompt-only skills are useful, but they are not yet true tools
+- phase-based skills are useful, but they are not yet true tools
 - direct reuse of desktop provider code is efficient now but will eventually need separation once gateway-specific concerns grow
 
 ## Industry Comparison
@@ -49,7 +47,7 @@ The gateway now has three meaningful layers instead of one:
 
 ## Next Gaps
 
-- move request logs and metrics into the gateway instead of only the desktop
-- add provider cooldown and health-based fallback suppression
 - separate gateway provider adapters from desktop service code
-- add skill execution phases for pre-context, prompt shaping, and post-processing
+- add durable gateway metrics and cost tracking, not only request status
+- add distributed provider resilience state for multi-process deployments
+- evolve phase-based skills toward tool-using workflows only when the product truly needs them

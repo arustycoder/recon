@@ -56,6 +56,7 @@ Desktop features:
 - automatic session titling for generic new sessions
 - HTTP backend settings already reserve gateway URLs for `chat / stream / cancel / health / providers`
 - gateway now exposes provider health, skill discovery, and recent request inspection endpoints
+- gateway persists request state, supports cooldown-aware provider fallback, and runs phased skills
 
 Provider examples:
 
@@ -106,6 +107,8 @@ Docs:
 - `docs/150-Skill-Pipeline.md`
 - `docs/160-Gateway-Review.md`
 - `docs/170-Gateway-Observability.md`
+- `docs/180-Provider-Resilience.md`
+- `docs/190-Skill-Execution-Phases.md`
 
 Provider comparison:
 

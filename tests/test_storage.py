@@ -129,6 +129,44 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(len(logs), 1)
             self.assertEqual(logs[0].provider, "openai_compatible")
 
+    def test_gateway_request_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "darkfactory.db"
+            storage = Storage(db_path=db_path)
+
+            project_id = storage.create_project("测试项目")
+            session_id = storage.create_session(project_id, "测试对话")
+            storage.save_gateway_request(
+                request_id="req_001",
+                client_request_id="client-001",
+                session_id=session_id,
+                status="running",
+                phase="model_execution",
+                provider_id="mock",
+                attempted_provider_ids=["mock"],
+                skill_ids=["structured_output"],
+                error_detail="",
+            )
+            storage.save_gateway_request(
+                request_id="req_001",
+                client_request_id="client-001",
+                session_id=session_id,
+                status="completed",
+                phase="completed",
+                provider_id="mock",
+                attempted_provider_ids=["mock"],
+                skill_ids=["structured_output"],
+                error_detail="",
+            )
+
+            record = storage.get_gateway_request("req_001")
+            records = storage.list_gateway_requests()
+
+            self.assertIsNotNone(record)
+            self.assertEqual(record.status, "completed")
+            self.assertEqual(record.phase, "completed")
+            self.assertEqual(len(records), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

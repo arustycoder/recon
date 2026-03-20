@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +15,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from darkfactory.models import ProviderSettings
+from darkfactory.storage import Storage
 from darkfactory_gateway.app import create_app
 from darkfactory_gateway.models import GatewayChatRequest
 from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
@@ -48,8 +50,13 @@ def sample_request() -> dict:
 
 class GatewayAppTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.service = GatewayService()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.storage = Storage(db_path=Path(self.temp_dir.name) / "gateway.db")
+        self.service = GatewayService(storage=self.storage)
         self.client = TestClient(create_app(self.service))
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
 
     def test_health_and_registry_endpoints(self) -> None:
         health = self.client.get("/api/health")
@@ -98,6 +105,7 @@ class GatewayAppTests(unittest.TestCase):
         self.assertTrue(any(item["request_id"] == request_id for item in listing.json()))
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["status"], "completed")
+        self.assertEqual(detail.json()["phase"], "completed")
         self.assertEqual(detail.json()["client_request_id"], "client-001")
 
     def test_cancel_endpoint_marks_request(self) -> None:
@@ -132,7 +140,10 @@ class GatewayAppTests(unittest.TestCase):
                 ),
             ]
         )
-        service = GatewayService(provider_registry=registry)
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "fallback.db"),
+        )
 
         def fake_stream_reply(self, **kwargs):
             settings = kwargs["settings"]
@@ -164,7 +175,10 @@ class GatewayAppTests(unittest.TestCase):
                 )
             ]
         )
-        service = GatewayService(skill_registry=registry)
+        service = GatewayService(
+            skill_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "skills.db"),
+        )
         captured: dict[str, str] = {}
 
         def fake_stream_reply(self, **kwargs):
@@ -183,6 +197,77 @@ class GatewayAppTests(unittest.TestCase):
         user_message = captured["user_message"]
         self.assertIn("[custom] 输出风格为 激进，项目是 测试项目。", user_message)
         self.assertIn("[User Message]", user_message)
+
+    def test_post_processing_skill_rewrites_reply(self) -> None:
+        registry = SkillRegistry(
+            [
+                SkillRecord(
+                    id="final_wrap",
+                    label="Final Wrap",
+                    description="Wrap final reply",
+                    phase="post_processing",
+                    template="【最终输出】\n{reply}\n\n【备注】\n已执行后处理。",
+                )
+            ]
+        )
+        service = GatewayService(
+            skill_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "post.db"),
+        )
+
+        def fake_stream_reply(self, **kwargs):
+            yield "原始回复"
+
+        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+            response = service.chat(
+                service_request(
+                    skill_ids=["final_wrap"],
+                    skill_mode="request_only",
+                )
+            )
+
+        self.assertIn("【最终输出】", response.reply)
+        self.assertIn("原始回复", response.reply)
+
+    def test_provider_cooldown_blocks_immediate_retry(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="fragile",
+                    kind="openai_compatible",
+                    label="Fragile",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://broken.invalid/v1",
+                        openai_model="broken-model",
+                    ),
+                    default=True,
+                    priority=1,
+                    cooldown_seconds=60,
+                    max_consecutive_failures=1,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "cooldown.db"),
+        )
+
+        def fake_stream_reply(self, **kwargs):
+            raise RuntimeError("provider failed")
+            yield ""
+
+        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+            with self.assertRaises(RuntimeError):
+                service.chat(service_request(provider_id="fragile", provider_strategy="default"))
+
+            with self.assertRaises(RuntimeError) as second_error:
+                service.chat(service_request(provider_id="fragile", provider_strategy="default"))
+
+        self.assertIn("cooling down", str(second_error.exception))
+        health = service.provider_health("fragile")
+        self.assertEqual(health.status, "error")
+        self.assertIn("cooling down", health.detail)
 
 
 def service_request(**updates):

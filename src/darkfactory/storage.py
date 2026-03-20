@@ -4,9 +4,17 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+import json
 
 from .config import DEFAULT_PROVIDER_KEYS
-from .models import Message, Project, ProviderSettings, RequestLog, Session
+from .models import (
+    GatewayRequestRecord,
+    Message,
+    Project,
+    ProviderSettings,
+    RequestLog,
+    Session,
+)
 
 
 DEFAULT_DB_PATH = Path.home() / ".darkfactory" / "darkfactory.db"
@@ -80,6 +88,21 @@ class Storage:
                     total_tokens INTEGER NOT NULL DEFAULT 0,
                     detail TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS gateway_requests (
+                    request_id TEXT PRIMARY KEY,
+                    client_request_id TEXT NOT NULL DEFAULT '',
+                    session_id INTEGER,
+                    status TEXT NOT NULL,
+                    phase TEXT NOT NULL DEFAULT '',
+                    provider_id TEXT NOT NULL DEFAULT '',
+                    attempted_provider_ids TEXT NOT NULL DEFAULT '[]',
+                    skill_ids TEXT NOT NULL DEFAULT '[]',
+                    error_detail TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE SET NULL
                 );
                 """
@@ -461,3 +484,102 @@ class Storage:
             sql += " WHERE " + " AND ".join(where_clauses)
         with self.connect() as connection:
             connection.execute(sql, tuple(values))
+
+    def save_gateway_request(
+        self,
+        *,
+        request_id: str,
+        client_request_id: str = "",
+        session_id: int | None = None,
+        status: str,
+        phase: str = "",
+        provider_id: str = "",
+        attempted_provider_ids: list[str] | None = None,
+        skill_ids: list[str] | None = None,
+        error_detail: str = "",
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO gateway_requests (
+                    request_id,
+                    client_request_id,
+                    session_id,
+                    status,
+                    phase,
+                    provider_id,
+                    attempted_provider_ids,
+                    skill_ids,
+                    error_detail
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(request_id) DO UPDATE SET
+                    client_request_id = excluded.client_request_id,
+                    session_id = excluded.session_id,
+                    status = excluded.status,
+                    phase = excluded.phase,
+                    provider_id = excluded.provider_id,
+                    attempted_provider_ids = excluded.attempted_provider_ids,
+                    skill_ids = excluded.skill_ids,
+                    error_detail = excluded.error_detail,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    request_id,
+                    client_request_id,
+                    session_id,
+                    status,
+                    phase,
+                    provider_id,
+                    json.dumps(attempted_provider_ids or [], ensure_ascii=False),
+                    json.dumps(skill_ids or [], ensure_ascii=False),
+                    error_detail,
+                ),
+            )
+
+    def list_gateway_requests(self, limit: int = 100) -> list[GatewayRequestRecord]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    request_id,
+                    client_request_id,
+                    session_id,
+                    status,
+                    phase,
+                    provider_id,
+                    attempted_provider_ids,
+                    skill_ids,
+                    error_detail,
+                    created_at,
+                    updated_at
+                FROM gateway_requests
+                ORDER BY updated_at DESC, created_at DESC, request_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [GatewayRequestRecord(**dict(row)) for row in rows]
+
+    def get_gateway_request(self, request_id: str) -> GatewayRequestRecord | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    request_id,
+                    client_request_id,
+                    session_id,
+                    status,
+                    phase,
+                    provider_id,
+                    attempted_provider_ids,
+                    skill_ids,
+                    error_detail,
+                    created_at,
+                    updated_at
+                FROM gateway_requests
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            ).fetchone()
+        return GatewayRequestRecord(**dict(row)) if row else None

@@ -14,6 +14,7 @@ class SkillRecord:
     label: str
     description: str
     template: str
+    phase: str = "prompt_shaping"
     enabled_by_default: bool = False
     parameters: dict[str, str] = field(default_factory=dict)
 
@@ -29,6 +30,7 @@ class SkillRecord:
 class RenderedSkill:
     id: str
     label: str
+    phase: str
     content: str
 
 
@@ -47,6 +49,7 @@ class SkillRegistry:
                 id="project_context",
                 label="Project Context",
                 description="Inject explicit project and session context into the request.",
+                phase="pre_context",
                 enabled_by_default=True,
                 template=(
                     "当前项目为“{project_name}”，电厂“{plant}”，机组“{unit}”，"
@@ -58,6 +61,7 @@ class SkillRegistry:
                 id="structured_output",
                 label="Structured Output",
                 description="Force structured operational output blocks.",
+                phase="prompt_shaping",
                 enabled_by_default=True,
                 parameters={
                     "output_sections": "【结论】【原因分析】【优化建议】【影响评估】",
@@ -71,6 +75,7 @@ class SkillRegistry:
                 id="ops_guardrails",
                 label="Ops Guardrails",
                 description="Keep the answer grounded in operations analysis and uncertainty.",
+                phase="prompt_shaping",
                 enabled_by_default=True,
                 parameters={"safety_mode": "conservative"},
                 template=(
@@ -96,6 +101,7 @@ class SkillRegistry:
                     label=str(item.get("label") or item.get("id") or "Custom Skill"),
                     description=str(item.get("description") or "Custom gateway skill."),
                     template=str(item.get("template") or item.get("prompt") or ""),
+                    phase=str(item.get("phase") or "prompt_shaping"),
                     enabled_by_default=bool(item.get("enabled_by_default", False)),
                     parameters={
                         str(key): str(value)
@@ -114,45 +120,97 @@ class SkillRegistry:
                 id=record.id,
                 label=record.label,
                 description=record.description,
+                phase=record.phase,
                 enabled_by_default=record.enabled_by_default,
                 parameter_keys=record.parameter_keys(),
             )
             for record in self._records
         ]
 
-    def resolve(
+    def select(
         self,
         *,
         request: GatewayChatRequest,
         default_skill_ids: list[str] | None = None,
-    ) -> list[RenderedSkill]:
+    ) -> list[SkillRecord]:
         skill_ids = self._merge_skill_ids(
             request=request,
             default_skill_ids=default_skill_ids or [],
         )
-        if not skill_ids:
-            return []
-
-        context = self._build_context(request)
-        rendered: list[RenderedSkill] = []
+        selected: list[SkillRecord] = []
         for skill_id in skill_ids:
             record = self.get(skill_id)
-            if record is None or not record.template.strip():
+            if record is not None:
+                selected.append(record)
+        return selected
+
+    def render_phase(
+        self,
+        *,
+        request: GatewayChatRequest,
+        selected_skills: list[SkillRecord],
+        phase: str,
+        extra_context: dict[str, str] | None = None,
+    ) -> list[RenderedSkill]:
+        context = self._build_context(request, extra_context=extra_context)
+        rendered: list[RenderedSkill] = []
+        for record in selected_skills:
+            if record.phase != phase or not record.template.strip():
                 continue
             values = SafeFormatDict(context)
             values.update(record.parameters)
             values.update(
                 {
                     str(key): str(value)
-                    for key, value in request.skill_arguments.get(skill_id, {}).items()
+                    for key, value in request.skill_arguments.get(record.id, {}).items()
                 }
             )
             content = record.template.format_map(values).strip()
             if content:
                 rendered.append(
-                    RenderedSkill(id=record.id, label=record.label, content=content)
+                    RenderedSkill(
+                        id=record.id,
+                        label=record.label,
+                        phase=record.phase,
+                        content=content,
+                    )
                 )
         return rendered
+
+    def apply_post_processing(
+        self,
+        *,
+        request: GatewayChatRequest,
+        selected_skills: list[SkillRecord],
+        reply: str,
+    ) -> str:
+        result = reply
+        rendered = self.render_phase(
+            request=request,
+            selected_skills=selected_skills,
+            phase="post_processing",
+            extra_context={"reply": result},
+        )
+        for item in rendered:
+            if "{reply}" in (self.get(item.id).template if self.get(item.id) else ""):
+                result = item.content
+            else:
+                result = f"{result}\n\n{item.content}".strip()
+        return result
+
+    def resolve(
+        self,
+        *,
+        request: GatewayChatRequest,
+        default_skill_ids: list[str] | None = None,
+        phase: str = "prompt_shaping",
+    ) -> list[RenderedSkill]:
+        selected = list(self.select(request=request, default_skill_ids=default_skill_ids))
+        return self.render_phase(
+            request=request,
+            selected_skills=selected,
+            phase=phase,
+        )
 
     def get(self, skill_id: str) -> SkillRecord | None:
         for record in self._records:
@@ -178,8 +236,12 @@ class SkillRegistry:
         merged.extend(request.skill_ids)
         return self._unique(merged)
 
-    def _build_context(self, request: GatewayChatRequest) -> dict[str, str]:
-        return {
+    def _build_context(
+        self,
+        request: GatewayChatRequest,
+        extra_context: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        context = {
             "project_name": request.project.name,
             "plant": request.project.plant,
             "unit": request.project.unit,
@@ -188,6 +250,9 @@ class SkillRegistry:
             "session_summary": request.session.summary,
             "message": request.message,
         }
+        if extra_context:
+            context.update(extra_context)
+        return context
 
     def _unique(self, values: list[str]) -> list[str]:
         seen: set[str] = set()

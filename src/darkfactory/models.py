@@ -66,6 +66,21 @@ class RequestLog:
 
 
 @dataclass(slots=True)
+class GatewayRequestRecord:
+    request_id: str
+    client_request_id: str
+    session_id: int | None
+    status: str
+    phase: str
+    provider_id: str
+    attempted_provider_ids: str
+    skill_ids: str
+    error_detail: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
 class ResponseMetrics:
     stream_mode: str = ""
     prompt_tokens: int = 0

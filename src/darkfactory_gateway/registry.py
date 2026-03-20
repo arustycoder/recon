@@ -22,6 +22,8 @@ class ProviderRecord:
     priority: int = 100
     tags: list[str] | None = None
     default_skill_ids: list[str] | None = None
+    cooldown_seconds: int = 30
+    max_consecutive_failures: int = 3
 
     def normalized_tags(self) -> list[str]:
         return list(self.tags or [])
@@ -101,6 +103,11 @@ class ProviderRegistry:
                             priority=priority,
                             tags=tags,
                             default_skill_ids=default_skill_ids,
+                            cooldown_seconds=max(0, int(item.get("cooldown_seconds", 30))),
+                            max_consecutive_failures=max(
+                                1,
+                                int(item.get("max_consecutive_failures", 3)),
+                            ),
                         )
                     )
             return records
@@ -117,6 +124,8 @@ class ProviderRegistry:
                     default=False,
                     priority=10,
                     tags=["env"],
+                    cooldown_seconds=30,
+                    max_consecutive_failures=3,
                 )
             )
         return records
@@ -138,6 +147,8 @@ class ProviderRegistry:
                 priority=record.priority,
                 tags=record.normalized_tags(),
                 default_skill_ids=record.normalized_default_skill_ids(),
+                cooldown_seconds=record.cooldown_seconds,
+                max_consecutive_failures=record.max_consecutive_failures,
             )
             for record in self._records
         ]

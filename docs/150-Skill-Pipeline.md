@@ -2,7 +2,7 @@
 
 ## Goal
 
-Upgrade gateway skills from fixed prompt snippets into configurable prompt templates with explicit parameter injection and merge rules.
+Upgrade gateway skills from fixed prompt snippets into configurable prompt templates with explicit parameter injection, merge rules, and execution phases.
 
 ## Scope
 
@@ -13,6 +13,7 @@ Upgrade gateway skills from fixed prompt snippets into configurable prompt templ
 - request-time skill selection
 - request-time skill arguments
 - deterministic template rendering against request context
+- phased execution for `pre_context`, `prompt_shaping`, and `post_processing`
 
 ### Excluded
 
@@ -32,6 +33,10 @@ Upgrade gateway skills from fixed prompt snippets into configurable prompt templ
   - user message
 - each skill can define default parameters
 - callers can override skill parameters per request
+- each skill belongs to one execution phase:
+  - `pre_context`
+  - `prompt_shaping`
+  - `post_processing`
 - `skill_mode=merge` combines:
   - built-in default skills
   - provider default skills
@@ -51,6 +56,7 @@ The request model now accepts:
 
 `GET /api/skills` now includes:
 
+- `phase`
 - `enabled_by_default`
 - `parameter_keys`
 
@@ -59,5 +65,6 @@ This makes it possible for future clients to build a real skill picker UI instea
 ## Implementation Notes
 
 - skill templates use safe string substitution so missing values remain visible instead of crashing the request
-- rendered skills are injected into the model request as a structured gateway preamble
+- rendered `pre_context` and `prompt_shaping` skills are injected into the model request as structured gateway sections
+- `post_processing` skills run after the provider reply and can wrap or append deterministic output transforms
 - the first phase keeps skills prompt-only and deterministic; tool-using skills can layer on later
