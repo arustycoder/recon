@@ -113,6 +113,7 @@ Docs:
 - `docs/200-Gateway-Metrics-And-Costs.md`
 - `docs/210-Provider-Health-And-Reset.md`
 - `docs/220-Gateway-Adapter-Boundary.md`
+- `docs/230-Gateway-Admin-Panel.md`
 
 Provider comparison:
 
