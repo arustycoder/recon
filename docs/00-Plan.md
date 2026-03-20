@@ -16,6 +16,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Right side shows structured domain dialogue
 - Bottom area provides quick actions and message input
 - Left column includes a scenario library for scalable prompt templates
+- Message rendering supports richer content such as links and tables
 - Output is domain-specific and structured, not general chat
 
 ## 3. MVP Scope
@@ -43,6 +44,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Gateway admin panel for provider, request, skill, and overview inspection
 - Stable streaming error handling for direct providers and gateway SSE responses
 - Gateway error taxonomy, sync/stream parity, and provider-specific resilience rules
+- Desktop attachment picker and richer message rendering for files, links, and tables
 - Windows installer packaging requirement
 
 ### Excluded
@@ -140,6 +142,7 @@ Model / Business Logic / Data Source
 - Current project and session info
 - Scrollable message list
 - Input box and send button
+- Attachment picker and richer message rendering for links and tables
 
 ### Interaction Rules
 
@@ -193,6 +196,7 @@ Model / Business Logic / Data Source
 - Consolidate gateway error handling so sync and stream paths expose consistent upstream semantics
 - Persist normalized gateway `error_type` values and expose them in provider health and request summaries
 - Introduce typed gateway provider errors and a first shared retry/cooldown policy table
+- Add a desktop attachment picker and richer message rendering for links and markdown tables
 
 ### Phase 5: Domainization
 

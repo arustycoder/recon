@@ -30,6 +30,7 @@ from darkfactory.ui import (
     WorkerResult,
     create_application,
     format_local_timestamp,
+    render_message_content_html,
 )
 
 
@@ -335,6 +336,32 @@ class MainWindowTests(unittest.TestCase):
         self.window.input_line.setText("第一行\n第二行\n第三行\n第四行")
 
         self.assertGreater(self.window.input_line.height(), baseline)
+
+    def test_attachment_summary_and_prompt_generation(self) -> None:
+        file_path = Path(self.temp_dir.name) / "notes.md"
+        file_path.write_text("第一行\n第二行", encoding="utf-8")
+
+        self.window.selected_attachments = [file_path]
+        self.window.update_attachment_summary()
+
+        self.assertFalse(self.window.attachment_summary.isHidden())
+        self.assertIn("notes.md", self.window.attachment_summary.text())
+
+        prompt = self.window.compose_outgoing_message("请分析附件内容", [file_path])
+        self.assertIn("【附件】", prompt)
+        self.assertIn("内容摘录", prompt)
+        self.assertIn("请分析附件内容", prompt)
+
+    def test_rich_message_rendering_supports_links_and_tables(self) -> None:
+        html_content = render_message_content_html(
+            "参考链接：https://example.com/report\n\n"
+            "| 指标 | 当前值 |\n"
+            "| --- | --- |\n"
+            "| 负荷 | 420MW |"
+        )
+
+        self.assertIn("<a href=", html_content)
+        self.assertIn("<table", html_content)
 
 
 if __name__ == "__main__":

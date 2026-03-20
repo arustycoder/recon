@@ -46,6 +46,9 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - keep `Enter` for send and `Shift+Enter` for newline
 - use one primary action button instead of separate send/cancel buttons
 - default state is an upward send icon, and the in-flight state switches to a custom coin-like stop icon with a black outer circle and white square center
+- add a plus-button on the left side of the composer for selecting local files
+- show selected files above the input area before send
+- render links and markdown tables more clearly inside message cards
 
 ### Context Area
 

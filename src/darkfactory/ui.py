@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import html
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from time import perf_counter
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, QThread, QTimer, Qt, Signal
@@ -12,6 +15,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFrame,
     QFormLayout,
     QHBoxLayout,
@@ -52,6 +56,29 @@ ROLE_LABELS = {
     "assistant": "系统",
 }
 
+URL_PATTERN = re.compile(r"(?P<url>(?:https?|file)://[^\s<>()]+)")
+MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+TABLE_DIVIDER_PATTERN = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
+TEXT_ATTACHMENT_SUFFIXES = {
+    ".txt",
+    ".md",
+    ".csv",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".log",
+    ".ini",
+    ".cfg",
+    ".toml",
+    ".xml",
+    ".html",
+    ".htm",
+    ".py",
+    ".sql",
+}
+MAX_ATTACHMENT_EXCERPT_CHARS = 4000
+MAX_ATTACHMENT_SUMMARY_COUNT = 5
+
 GENERIC_SESSION_NAMES = {"默认对话", "新对话", "默认会话", "新会话"}
 
 SCENARIO_LIBRARY: dict[str, list[tuple[str, str]]] = {
@@ -84,6 +111,117 @@ def format_local_timestamp(value: str) -> str:
             continue
         return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     return value
+
+
+def _linkify_plain_text(text: str) -> str:
+    if not text:
+        return ""
+    parts: list[str] = []
+    last = 0
+    for match in URL_PATTERN.finditer(text):
+        parts.append(html.escape(text[last : match.start()]))
+        url = match.group("url")
+        safe_url = html.escape(url, quote=True)
+        parts.append(f'<a href="{safe_url}">{html.escape(url)}</a>')
+        last = match.end()
+    parts.append(html.escape(text[last:]))
+    return "".join(parts)
+
+
+def render_inline_rich_text(text: str) -> str:
+    if not text:
+        return ""
+    parts: list[str] = []
+    last = 0
+    for match in MARKDOWN_LINK_PATTERN.finditer(text):
+        parts.append(_linkify_plain_text(text[last : match.start()]))
+        label = html.escape(match.group(1))
+        url = html.escape(match.group(2), quote=True)
+        parts.append(f'<a href="{url}">{label}</a>')
+        last = match.end()
+    parts.append(_linkify_plain_text(text[last:]))
+    return "".join(parts)
+
+
+def _split_table_row(line: str) -> list[str]:
+    stripped = line.strip().strip("|")
+    return [cell.strip() for cell in stripped.split("|")]
+
+
+def _is_markdown_table(lines: list[str], start: int) -> bool:
+    if start + 1 >= len(lines):
+        return False
+    if "|" not in lines[start]:
+        return False
+    if not TABLE_DIVIDER_PATTERN.match(lines[start + 1]):
+        return False
+    header = _split_table_row(lines[start])
+    divider = _split_table_row(lines[start + 1])
+    return len(header) >= 2 and len(header) == len(divider)
+
+
+def _render_markdown_table(lines: list[str], start: int) -> tuple[str, int]:
+    header = _split_table_row(lines[start])
+    index = start + 2
+    rows: list[list[str]] = []
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip() or "|" not in line:
+            break
+        cells = _split_table_row(line)
+        if len(cells) != len(header):
+            break
+        rows.append(cells)
+        index += 1
+
+    header_html = "".join(f"<th>{render_inline_rich_text(cell)}</th>" for cell in header)
+    row_html = []
+    for row in rows:
+        row_html.append(
+            "<tr>" + "".join(f"<td>{render_inline_rich_text(cell)}</td>" for cell in row) + "</tr>"
+        )
+    table_html = (
+        '<table cellspacing="0" cellpadding="6" border="1" '
+        'style="border-collapse:collapse; margin:6px 0;">'
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{''.join(row_html)}</tbody>"
+        "</table>"
+    )
+    return table_html, index
+
+
+def render_message_content_html(content: str) -> str:
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+    pieces: list[str] = []
+    paragraph: list[str] = []
+
+    def flush_paragraph() -> None:
+        if not paragraph:
+            return
+        joined = "<br>".join(render_inline_rich_text(line) for line in paragraph)
+        pieces.append(f"<p>{joined}</p>")
+        paragraph.clear()
+
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if _is_markdown_table(lines, index):
+            flush_paragraph()
+            table_html, index = _render_markdown_table(lines, index)
+            pieces.append(table_html)
+            continue
+        if not line.strip():
+            flush_paragraph()
+            index += 1
+            continue
+        paragraph.append(line)
+        index += 1
+
+    flush_paragraph()
+    if not pieces:
+        return "<p></p>"
+    return "".join(pieces)
 
 
 @dataclass(slots=True)
@@ -242,9 +380,15 @@ class MessageCard(QWidget):
         state.setObjectName("message-card-state")
         state.setVisible(bool(state_label))
 
-        body = QLabel(content)
+        body = QLabel()
+        body.setTextFormat(Qt.TextFormat.RichText)
+        body.setOpenExternalLinks(True)
+        body.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction
+            | Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        body.setText(render_message_content_html(content))
         body.setWordWrap(True)
-        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         body.setObjectName("message-card-body")
 
         title_row.addWidget(title)
@@ -834,6 +978,7 @@ class MainWindow(QMainWindow):
         self.pending_message_text = "正在思考，请稍候..."
         self.pending_message_content = self.pending_message_text
         self.closing_after_requests = False
+        self.selected_attachments: list[Path] = []
 
         self.slow_response_timer = QTimer(self)
         self.slow_response_timer.setSingleShot(True)
@@ -870,6 +1015,24 @@ class MainWindow(QMainWindow):
         self.scene_tree.setRootIsDecorated(True)
         self.scene_tree.itemActivated.connect(self.on_scene_item_activated)
         self.scene_tree.itemClicked.connect(self.on_scene_item_clicked)
+
+        self.attach_button = QPushButton("+")
+        self.attach_button.setFixedSize(32, 32)
+        self.attach_button.setToolTip("选择文件")
+        self.attach_button.clicked.connect(self.choose_attachments)
+
+        self.attachment_summary = QLabel("")
+        self.attachment_summary.setWordWrap(True)
+        self.attachment_summary.setTextFormat(Qt.TextFormat.RichText)
+        self.attachment_summary.setOpenExternalLinks(True)
+        self.attachment_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.attachment_summary.setStyleSheet("color: #5f6b7a; font-size: 12px;")
+        self.attachment_summary.hide()
+
+        self.clear_attachments_button = QPushButton("清空附件")
+        self.clear_attachments_button.clicked.connect(self.clear_selected_attachments)
+        self.clear_attachments_button.hide()
+
         self.input_line = ChatInput()
         self.input_line.send_requested.connect(self.send_current_input)
 
@@ -959,7 +1122,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.project_meta)
         layout.addWidget(self.message_stack, stretch=1)
 
+        attachment_row = QHBoxLayout()
+        attachment_row.addWidget(self.attachment_summary, stretch=1)
+        attachment_row.addWidget(self.clear_attachments_button)
+        layout.addLayout(attachment_row)
+
         input_row = QHBoxLayout()
+        input_row.addWidget(self.attach_button)
         input_row.addWidget(self.input_line, stretch=1)
         input_row.addWidget(self.action_button)
         layout.addLayout(input_row)
@@ -1191,10 +1360,12 @@ class MainWindow(QMainWindow):
     def update_interaction_state(self) -> None:
         has_session = self.current_session is not None
         self.input_line.setEnabled(has_session and not self.is_busy)
+        self.attach_button.setEnabled(has_session and not self.is_busy)
         self.action_button.setEnabled(has_session)
         self.new_project_button.setEnabled(not self.is_busy)
         self.new_session_button.setEnabled(self.current_project is not None and not self.is_busy)
         self.scene_tree.setEnabled(has_session and not self.is_busy)
+        self.clear_attachments_button.setEnabled(has_session and not self.is_busy)
         self.update_action_button()
 
     def set_busy(self, busy: bool) -> None:
@@ -1254,6 +1425,111 @@ class MainWindow(QMainWindow):
     def next_request_id(self) -> int:
         self.request_counter += 1
         return self.request_counter
+
+    def choose_attachments(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(self, "选择文件")
+        if not paths:
+            return
+        existing = {path.resolve() for path in self.selected_attachments}
+        for raw_path in paths:
+            path = Path(raw_path)
+            try:
+                resolved = path.resolve()
+            except OSError:
+                continue
+            if resolved in existing or not resolved.exists():
+                continue
+            self.selected_attachments.append(resolved)
+            existing.add(resolved)
+        self.update_attachment_summary()
+
+    def clear_selected_attachments(self) -> None:
+        self.selected_attachments.clear()
+        self.update_attachment_summary()
+
+    def update_attachment_summary(self) -> None:
+        if not self.selected_attachments:
+            self.attachment_summary.hide()
+            self.clear_attachments_button.hide()
+            self.attachment_summary.setText("")
+            return
+        previews = []
+        for path in self.selected_attachments[:MAX_ATTACHMENT_SUMMARY_COUNT]:
+            previews.append(
+                f'<a href="{html.escape(path.as_uri(), quote=True)}">{html.escape(path.name)}</a>'
+            )
+        suffix = ""
+        if len(self.selected_attachments) > MAX_ATTACHMENT_SUMMARY_COUNT:
+            suffix = f" 等 {len(self.selected_attachments)} 个文件"
+        self.attachment_summary.setText("已选附件：" + "、".join(previews) + suffix)
+        self.attachment_summary.show()
+        self.clear_attachments_button.show()
+
+    def build_attachment_prompt(self, attachments: list[Path]) -> str:
+        if not attachments:
+            return ""
+        blocks = ["【附件】"]
+        for path in attachments:
+            excerpt = self.read_attachment_excerpt(path)
+            if excerpt:
+                blocks.append(
+                    "\n".join(
+                        [
+                            f"文件：{path.name}",
+                            f"路径：{path}",
+                            f"链接：{path.as_uri()}",
+                            "类型：文本附件",
+                            "内容摘录：",
+                            excerpt,
+                        ]
+                    )
+                )
+            else:
+                blocks.append(
+                    "\n".join(
+                        [
+                            f"文件：{path.name}",
+                            f"路径：{path}",
+                            f"链接：{path.as_uri()}",
+                            "类型：二进制或暂不解析的文件",
+                            "说明：当前版本保留文件引用，但不会直接提取二进制内容。",
+                        ]
+                    )
+                )
+        return "\n\n".join(blocks)
+
+    def read_attachment_excerpt(self, path: Path) -> str:
+        if path.suffix.lower() not in TEXT_ATTACHMENT_SUFFIXES:
+            return ""
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return ""
+        if b"\x00" in raw[:1024]:
+            return ""
+        for encoding in ("utf-8", "utf-8-sig", "gb18030", "latin-1"):
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            return ""
+        excerpt = text.strip()
+        if not excerpt:
+            return ""
+        if len(excerpt) > MAX_ATTACHMENT_EXCERPT_CHARS:
+            excerpt = excerpt[:MAX_ATTACHMENT_EXCERPT_CHARS].rstrip() + "\n[内容已截断]"
+        return excerpt
+
+    def compose_outgoing_message(self, message: str, attachments: list[Path]) -> str:
+        parts: list[str] = []
+        attachment_prompt = self.build_attachment_prompt(attachments)
+        if attachment_prompt:
+            parts.append(attachment_prompt)
+        if message.strip():
+            parts.append(message.strip())
+        return "\n\n".join(parts).strip()
 
     def start_pending_response(self, request_id: int, session_id: int) -> None:
         self.active_request_id = request_id
@@ -1600,8 +1876,10 @@ class MainWindow(QMainWindow):
             return
 
         message = self.input_line.text().strip()
-        if not message:
+        attachments = list(self.selected_attachments)
+        if not message and not attachments:
             return
+        outgoing_message = self.compose_outgoing_message(message, attachments)
 
         session_id = self.current_session.id
         project = self.current_project
@@ -1610,12 +1888,16 @@ class MainWindow(QMainWindow):
         provider = self.assistant.provider_name()
         target = self.assistant.target_label()
 
-        self.apply_auto_session_title(session_id, message)
-        self.storage.add_message(session_id, "user", message)
+        self.apply_auto_session_title(
+            session_id,
+            message or " ".join(path.name for path in attachments),
+        )
+        self.storage.add_message(session_id, "user", outgoing_message)
         self.refresh_tree()
         if self.current_session is not None and self.current_session.id == session_id:
             self.load_session(session_id)
         self.input_line.clear()
+        self.clear_selected_attachments()
         self.set_busy(True)
 
         self.request_contexts[request_id] = RequestContext(
@@ -1632,7 +1914,7 @@ class MainWindow(QMainWindow):
             project=project,
             session=session,
             recent_messages=recent_messages,
-            user_message=message,
+            user_message=outgoing_message,
         )
         self.worker = worker
         self.workers[request_id] = worker
