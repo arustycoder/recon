@@ -17,6 +17,8 @@ from .models import (
     GatewayProviderHealthResponse,
     GatewayProviderResetResponse,
     GatewayRequestInfo,
+    GatewayRequestSummaryGroup,
+    GatewayRequestSummaryResponse,
 )
 from .registry import ProviderRecord, ProviderRegistry
 from .skills import SkillRegistry
@@ -247,11 +249,56 @@ class GatewayService:
     def list_skills(self):
         return self.skill_registry.infos()
 
-    def list_requests(self) -> list[GatewayRequestInfo]:
+    def list_requests(
+        self,
+        *,
+        provider_id: str = "",
+        status: str = "",
+        phase: str = "",
+        since_minutes: int = 0,
+        limit: int = 100,
+    ) -> list[GatewayRequestInfo]:
         return [
             self._record_to_request_info(record)
-            for record in self.storage.list_gateway_requests()
+            for record in self.storage.filter_gateway_requests(
+                limit=limit,
+                provider_id=provider_id,
+                status=status,
+                phase=phase,
+                since_minutes=since_minutes,
+            )
         ]
+
+    def request_summary(
+        self,
+        *,
+        provider_id: str = "",
+        status: str = "",
+        phase: str = "",
+        since_minutes: int = 0,
+    ) -> GatewayRequestSummaryResponse:
+        records = self.storage.filter_gateway_requests(
+            limit=1000,
+            provider_id=provider_id,
+            status=status,
+            phase=phase,
+            since_minutes=since_minutes,
+        )
+        return GatewayRequestSummaryResponse(
+            request_count=len(records),
+            completed_count=sum(1 for item in records if item.status == "completed"),
+            error_count=sum(1 for item in records if item.status == "error"),
+            avg_latency_ms=self._average_int(
+                item.latency_ms for item in records if item.latency_ms > 0
+            ),
+            avg_first_token_latency_ms=self._average_int(
+                item.first_token_latency_ms for item in records if item.first_token_latency_ms > 0
+            ),
+            total_tokens=sum(item.total_tokens for item in records),
+            estimated_cost_usd=round(sum(item.estimated_cost_usd for item in records), 6),
+            by_provider=self._summarize_groups(records, "provider_id"),
+            by_status=self._summarize_groups(records, "status"),
+        )
 
     def get_request(self, request_id: str) -> GatewayRequestInfo | None:
         record = self.storage.get_gateway_request(request_id)
@@ -832,6 +879,47 @@ class GatewayService:
             else 0.0
         )
         return round(prompt_cost + completion_cost, 6)
+
+    def _summarize_groups(
+        self,
+        records,
+        field_name: str,
+    ) -> list[GatewayRequestSummaryGroup]:
+        grouped: dict[str, list] = {}
+        for record in records:
+            key = getattr(record, field_name) or "unknown"
+            grouped.setdefault(key, []).append(record)
+        rows: list[GatewayRequestSummaryGroup] = []
+        for key in sorted(grouped):
+            items = grouped[key]
+            rows.append(
+                GatewayRequestSummaryGroup(
+                    key=key,
+                    request_count=len(items),
+                    completed_count=sum(1 for item in items if item.status == "completed"),
+                    error_count=sum(1 for item in items if item.status == "error"),
+                    avg_latency_ms=self._average_int(
+                        item.latency_ms for item in items if item.latency_ms > 0
+                    ),
+                    avg_first_token_latency_ms=self._average_int(
+                        item.first_token_latency_ms
+                        for item in items
+                        if item.first_token_latency_ms > 0
+                    ),
+                    total_tokens=sum(item.total_tokens for item in items),
+                    estimated_cost_usd=round(
+                        sum(item.estimated_cost_usd for item in items),
+                        6,
+                    ),
+                )
+            )
+        return rows
+
+    def _average_int(self, values) -> int:
+        sequence = list(values)
+        if not sequence:
+            return 0
+        return int(sum(sequence) / len(sequence))
 
     def _sse(self, data: dict[str, object]) -> str:
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"

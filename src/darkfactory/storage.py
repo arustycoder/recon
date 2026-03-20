@@ -599,9 +599,40 @@ class Storage:
             )
 
     def list_gateway_requests(self, limit: int = 100) -> list[GatewayRequestRecord]:
+        return self.filter_gateway_requests(limit=limit)
+
+    def filter_gateway_requests(
+        self,
+        limit: int = 100,
+        *,
+        provider_id: str = "",
+        status: str = "",
+        phase: str = "",
+        since_minutes: int = 0,
+    ) -> list[GatewayRequestRecord]:
+        where_clauses: list[str] = []
+        values: list[str | int] = []
+        if provider_id:
+            where_clauses.append("provider_id = ?")
+            values.append(provider_id)
+        if status:
+            where_clauses.append("status = ?")
+            values.append(status)
+        if phase:
+            where_clauses.append("phase = ?")
+            values.append(phase)
+        if since_minutes > 0:
+            where_clauses.append("updated_at >= datetime('now', ?)")
+            values.append(f"-{int(since_minutes)} minutes")
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+
+        values.append(limit)
         with self.connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT
                     request_id,
                     client_request_id,
@@ -623,10 +654,11 @@ class Storage:
                     created_at,
                     updated_at
                 FROM gateway_requests
+                {where_sql}
                 ORDER BY updated_at DESC, created_at DESC, request_id DESC
                 LIMIT ?
                 """,
-                (limit,),
+                tuple(values),
             ).fetchall()
         return [GatewayRequestRecord(**dict(row)) for row in rows]
 

@@ -162,6 +162,23 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(detail.json()["client_request_id"], "client-001")
         self.assertGreaterEqual(detail.json()["latency_ms"], 0)
 
+    def test_request_listing_supports_filters_and_summary(self) -> None:
+        self.client.post("/api/chat", json=sample_request())
+        second = sample_request()
+        second["provider_id"] = "mock"
+        second["client_request_id"] = "client-002"
+        self.client.post("/api/chat", json=second)
+
+        listing = self.client.get("/api/requests", params={"provider_id": "mock", "status": "completed"})
+        summary = self.client.get("/api/requests/summary", params={"provider_id": "mock"})
+
+        self.assertEqual(listing.status_code, 200)
+        self.assertGreaterEqual(len(listing.json()), 2)
+        self.assertEqual(summary.status_code, 200)
+        self.assertGreaterEqual(summary.json()["request_count"], 2)
+        self.assertEqual(summary.json()["error_count"], 0)
+        self.assertTrue(any(item["key"] == "mock" for item in summary.json()["by_provider"]))
+
     def test_cancel_endpoint_marks_request(self) -> None:
         request_id = self.service.request_tracker.create()
 

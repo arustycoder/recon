@@ -185,6 +185,32 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(record.total_tokens, 90)
             self.assertEqual(len(records), 1)
 
+    def test_gateway_request_filters(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "darkfactory.db"
+            storage = Storage(db_path=db_path)
+
+            storage.save_gateway_request(
+                request_id="req_a",
+                client_request_id="client-a",
+                status="completed",
+                phase="completed",
+                provider_id="mock",
+                total_tokens=10,
+            )
+            storage.save_gateway_request(
+                request_id="req_b",
+                client_request_id="client-b",
+                status="error",
+                phase="error",
+                provider_id="openai",
+                total_tokens=20,
+            )
+
+            self.assertEqual(len(storage.filter_gateway_requests(provider_id="mock")), 1)
+            self.assertEqual(len(storage.filter_gateway_requests(status="error")), 1)
+            self.assertEqual(len(storage.filter_gateway_requests(phase="completed")), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -126,3 +126,26 @@ class GatewayRequestInfo(BaseModel):
     error_detail: str = ""
     created_at: str = ""
     updated_at: str = ""
+
+
+class GatewayRequestSummaryGroup(BaseModel):
+    key: str
+    request_count: int = 0
+    completed_count: int = 0
+    error_count: int = 0
+    avg_latency_ms: int = 0
+    avg_first_token_latency_ms: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+
+
+class GatewayRequestSummaryResponse(BaseModel):
+    request_count: int = 0
+    completed_count: int = 0
+    error_count: int = 0
+    avg_latency_ms: int = 0
+    avg_first_token_latency_ms: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    by_provider: list[GatewayRequestSummaryGroup] = Field(default_factory=list)
+    by_status: list[GatewayRequestSummaryGroup] = Field(default_factory=list)

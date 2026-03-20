@@ -26,7 +26,16 @@ Give the gateway its own request-level visibility so fallback and skill behavior
 ## API
 
 - `GET /api/requests`
+- `GET /api/requests/summary`
 - `GET /api/requests/{request_id}`
+
+Listing filters:
+
+- `provider_id`
+- `status`
+- `phase`
+- `since_minutes`
+- `limit`
 
 Tracked fields:
 
@@ -48,6 +57,16 @@ Tracked fields:
 - `error_detail`
 - `created_at`
 - `updated_at`
+
+Summary fields:
+
+- request and error counts
+- average latency
+- average first-token latency
+- total tokens
+- total estimated cost
+- grouped metrics by provider
+- grouped metrics by status
 
 ## Implementation Notes
 

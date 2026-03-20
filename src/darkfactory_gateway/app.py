@@ -14,6 +14,7 @@ from .models import (
     GatewayProviderInfo,
     GatewayProviderResetResponse,
     GatewayRequestInfo,
+    GatewayRequestSummaryResponse,
     GatewaySkillInfo,
 )
 from .service import GatewayService
@@ -45,8 +46,34 @@ def create_app(service: GatewayService | None = None) -> FastAPI:
         return gateway.list_skills()
 
     @app.get("/api/requests", response_model=list[GatewayRequestInfo])
-    def requests() -> list[GatewayRequestInfo]:
-        return gateway.list_requests()
+    def requests(
+        provider_id: str = "",
+        status: str = "",
+        phase: str = "",
+        since_minutes: int = 0,
+        limit: int = 100,
+    ) -> list[GatewayRequestInfo]:
+        return gateway.list_requests(
+            provider_id=provider_id,
+            status=status,
+            phase=phase,
+            since_minutes=since_minutes,
+            limit=limit,
+        )
+
+    @app.get("/api/requests/summary", response_model=GatewayRequestSummaryResponse)
+    def request_summary(
+        provider_id: str = "",
+        status: str = "",
+        phase: str = "",
+        since_minutes: int = 0,
+    ) -> GatewayRequestSummaryResponse:
+        return gateway.request_summary(
+            provider_id=provider_id,
+            status=status,
+            phase=phase,
+            since_minutes=since_minutes,
+        )
 
     @app.get("/api/requests/{request_id}", response_model=GatewayRequestInfo)
     def request_info(request_id: str) -> GatewayRequestInfo:
