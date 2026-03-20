@@ -43,16 +43,17 @@ class ProviderRegistry:
         )
 
     def _load_records(self) -> list[ProviderRecord]:
+        mock_record = ProviderRecord(
+            id="mock",
+            kind="mock",
+            label="Mock Provider",
+            settings=ProviderSettings(provider="mock"),
+            default=True,
+            priority=999,
+            tags=["local", "fallback"],
+        )
         records = [
-            ProviderRecord(
-                id="mock",
-                kind="mock",
-                label="Mock Provider",
-                settings=ProviderSettings(provider="mock"),
-                default=True,
-                priority=999,
-                tags=["local", "fallback"],
-            )
+            mock_record
         ]
 
         raw_json = os.getenv("DARKFACTORY_GATEWAY_PROVIDERS_JSON", "").strip()
@@ -125,13 +126,14 @@ class ProviderRegistry:
         env_settings = provider_settings_from_env()
         if env_settings.provider or env_settings.openai_model or env_settings.ollama_model:
             kind = env_settings.provider or "openai_compatible"
+            mock_record.default = False
             records.append(
                 ProviderRecord(
                     id="default",
                     kind=kind,
                     label="Default Env Provider",
                     settings=env_settings,
-                    default=False,
+                    default=True,
                     priority=10,
                     tags=["env"],
                     cooldown_seconds=30,

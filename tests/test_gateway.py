@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -164,6 +165,25 @@ class GatewayAppTests(unittest.TestCase):
         self.assertGreaterEqual(health.json()["provider_count"], 1)
         self.assertTrue(any(item["id"] == "mock" for item in providers.json()))
         self.assertTrue(any(item["id"] == "structured_output" for item in skills.json()))
+
+    def test_registry_prefers_env_provider_as_default_over_mock(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "OPENAI_BASE_URL": "https://example.invalid/v1",
+                "OPENAI_MODEL": "demo-model",
+            },
+            clear=True,
+        ):
+            registry = ProviderRegistry()
+
+        self.assertEqual(registry.default_provider_id(), "default")
+        self.assertEqual(registry.get().id, "default")
+        infos = registry.infos()
+        default_info = next(item for item in infos if item.id == "default")
+        mock_info = next(item for item in infos if item.id == "mock")
+        self.assertTrue(default_info.default)
+        self.assertFalse(mock_info.default)
 
     def test_chat_returns_mock_reply(self) -> None:
         response = self.client.post("/api/chat", json=sample_request())

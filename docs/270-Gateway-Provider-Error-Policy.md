@@ -4,6 +4,8 @@
 
 Make gateway retry and cooldown behavior explicit instead of scattering those decisions across service branches.
 
+When a real provider is configured from `.env`, it should become the default gateway provider. `mock` remains available as an explicit local fallback, not the default route.
+
 ## Scope
 
 This version introduces a first policy table over normalized gateway error types.
