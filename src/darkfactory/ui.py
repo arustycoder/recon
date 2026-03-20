@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
 
-from PySide6.QtCore import QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
+    QTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -293,6 +294,51 @@ class MessageCard(QWidget):
             }
             """
         )
+
+
+class ChatInput(QTextEdit):
+    send_requested = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setAcceptRichText(False)
+        self.setPlaceholderText("输入运行问题，或从左侧场景库选择模板")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.document().documentLayout().documentSizeChanged.connect(self.adjust_height)
+        self.adjust_height()
+
+    def adjust_height(self, *_args) -> None:
+        line_count = max(1, self.document().blockCount())
+        line_height = self.fontMetrics().lineSpacing()
+        document_height = line_count * line_height
+        frame_height = self.frameWidth() * 2
+        padding = 10
+        target = document_height + frame_height + padding
+        self.setFixedHeight(max(40, min(target, 140)))
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            modifiers = event.modifiers()
+            if (
+                key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}
+                and not (modifiers & Qt.KeyboardModifier.ShiftModifier)
+            ):
+                self.send_requested.emit()
+                return True
+        return super().event(event)
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setText(self, text: str) -> None:
+        self.setPlainText(text)
+        self.adjust_height()
+
+    def clear(self) -> None:
+        super().clear()
+        self.adjust_height()
 
 
 class ProjectDialog(QDialog):
@@ -824,9 +870,8 @@ class MainWindow(QMainWindow):
         self.scene_tree.setRootIsDecorated(True)
         self.scene_tree.itemActivated.connect(self.on_scene_item_activated)
         self.scene_tree.itemClicked.connect(self.on_scene_item_clicked)
-        self.input_line = QLineEdit()
-        self.input_line.setPlaceholderText("输入运行问题，或从左侧场景库选择模板")
-        self.input_line.returnPressed.connect(self.send_current_input)
+        self.input_line = ChatInput()
+        self.input_line.send_requested.connect(self.send_current_input)
 
         self.send_button = QPushButton("发送")
         self.send_button.clicked.connect(self.send_current_input)

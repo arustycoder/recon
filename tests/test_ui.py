@@ -322,6 +322,13 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(self.window.scene_tree.isEnabled())
 
+    def test_chat_input_grows_for_multiline_content(self) -> None:
+        baseline = self.window.input_line.height()
+
+        self.window.input_line.setText("第一行\n第二行\n第三行\n第四行")
+
+        self.assertGreater(self.window.input_line.height(), baseline)
+
 
 if __name__ == "__main__":
     unittest.main()

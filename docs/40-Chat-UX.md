@@ -42,6 +42,8 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - show a visible `输入中` state on the pending assistant card until the reply completes
 - replace the placeholder with the real reply or an error message
 - update the same assistant card progressively during streaming
+- use a multi-line input area that grows with content instead of a fixed single-line field
+- keep `Enter` for send and `Shift+Enter` for newline
 
 ### Context Area
 
