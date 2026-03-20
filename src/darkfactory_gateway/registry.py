@@ -24,6 +24,8 @@ class ProviderRecord:
     default_skill_ids: list[str] | None = None
     cooldown_seconds: int = 30
     max_consecutive_failures: int = 3
+    prompt_cost_per_1k: float = 0.0
+    completion_cost_per_1k: float = 0.0
 
     def normalized_tags(self) -> list[str]:
         return list(self.tags or [])
@@ -108,6 +110,14 @@ class ProviderRegistry:
                                 1,
                                 int(item.get("max_consecutive_failures", 3)),
                             ),
+                            prompt_cost_per_1k=max(
+                                0.0,
+                                float(item.get("prompt_cost_per_1k", 0.0)),
+                            ),
+                            completion_cost_per_1k=max(
+                                0.0,
+                                float(item.get("completion_cost_per_1k", 0.0)),
+                            ),
                         )
                     )
             return records
@@ -126,6 +136,8 @@ class ProviderRegistry:
                     tags=["env"],
                     cooldown_seconds=30,
                     max_consecutive_failures=3,
+                    prompt_cost_per_1k=0.0,
+                    completion_cost_per_1k=0.0,
                 )
             )
         return records
@@ -149,6 +161,8 @@ class ProviderRegistry:
                 default_skill_ids=record.normalized_default_skill_ids(),
                 cooldown_seconds=record.cooldown_seconds,
                 max_consecutive_failures=record.max_consecutive_failures,
+                prompt_cost_per_1k=record.prompt_cost_per_1k,
+                completion_cost_per_1k=record.completion_cost_per_1k,
             )
             for record in self._records
         ]

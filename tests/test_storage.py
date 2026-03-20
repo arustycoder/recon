@@ -143,6 +143,14 @@ class StorageTests(unittest.TestCase):
                 status="running",
                 phase="model_execution",
                 provider_id="mock",
+                target="mock",
+                stream_mode="stream",
+                latency_ms=120,
+                first_token_latency_ms=30,
+                prompt_tokens=40,
+                completion_tokens=50,
+                total_tokens=90,
+                estimated_cost_usd=0.0123,
                 attempted_provider_ids=["mock"],
                 skill_ids=["structured_output"],
                 error_detail="",
@@ -154,6 +162,14 @@ class StorageTests(unittest.TestCase):
                 status="completed",
                 phase="completed",
                 provider_id="mock",
+                target="mock",
+                stream_mode="stream",
+                latency_ms=120,
+                first_token_latency_ms=30,
+                prompt_tokens=40,
+                completion_tokens=50,
+                total_tokens=90,
+                estimated_cost_usd=0.0123,
                 attempted_provider_ids=["mock"],
                 skill_ids=["structured_output"],
                 error_detail="",
@@ -165,6 +181,8 @@ class StorageTests(unittest.TestCase):
             self.assertIsNotNone(record)
             self.assertEqual(record.status, "completed")
             self.assertEqual(record.phase, "completed")
+            self.assertEqual(record.latency_ms, 120)
+            self.assertEqual(record.total_tokens, 90)
             self.assertEqual(len(records), 1)
 
 

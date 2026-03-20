@@ -13,6 +13,7 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
 - skill registry with built-in prompt skills, templates, and request-time arguments
 - health, providers, skills, chat, stream, and cancel endpoints
 - request listing and detail endpoints for in-memory observability
+- persisted request execution metrics and token tracking
 - request id management and best-effort cancellation state
 
 ### Excluded
@@ -67,3 +68,4 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
 - gateway should reuse the existing desktop-side `AssistantService` provider client paths
 - provider registry and skill registry should stay simple and in-process for the first phase
 - configuration should allow env-driven provider definitions so the skeleton is immediately testable
+- gateway orchestration should depend on a gateway adapter boundary, even if the default adapter still reuses desktop provider code

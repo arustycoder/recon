@@ -47,12 +47,16 @@ class GatewayChatResponse(BaseModel):
     request_id: str
     client_request_id: str = ""
     provider_id: str
+    target: str = ""
     reply: str
     attempted_provider_ids: list[str] = Field(default_factory=list)
     stream_mode: str = ""
+    latency_ms: int = 0
+    first_token_latency_ms: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
 
 
 class GatewayProviderInfo(BaseModel):
@@ -66,6 +70,8 @@ class GatewayProviderInfo(BaseModel):
     default_skill_ids: list[str] = Field(default_factory=list)
     cooldown_seconds: int = 0
     max_consecutive_failures: int = 0
+    prompt_cost_per_1k: float = 0.0
+    completion_cost_per_1k: float = 0.0
 
 
 class GatewaySkillInfo(BaseModel):
@@ -90,8 +96,15 @@ class GatewayCancelResponse(BaseModel):
 
 class GatewayProviderHealthResponse(BaseModel):
     provider_id: str
-    status: Literal["ok", "error"]
+    status: Literal["healthy", "degraded", "cooldown", "disabled", "misconfigured", "unreachable"]
     detail: str
+    consecutive_failures: int = 0
+    cooldown_remaining_seconds: int = 0
+
+
+class GatewayProviderResetResponse(BaseModel):
+    provider_id: str
+    status: Literal["reset"]
 
 
 class GatewayRequestInfo(BaseModel):
@@ -100,6 +113,14 @@ class GatewayRequestInfo(BaseModel):
     status: str
     phase: str = ""
     provider_id: str = ""
+    target: str = ""
+    stream_mode: str = ""
+    latency_ms: int = 0
+    first_token_latency_ms: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
     attempted_provider_ids: list[str] = Field(default_factory=list)
     skill_ids: list[str] = Field(default_factory=list)
     error_detail: str = ""

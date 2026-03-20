@@ -57,6 +57,7 @@ Desktop features:
 - HTTP backend settings already reserve gateway URLs for `chat / stream / cancel / health / providers`
 - gateway now exposes provider health, skill discovery, and recent request inspection endpoints
 - gateway persists request state, supports cooldown-aware provider fallback, and runs phased skills
+- gateway now records request metrics/costs, exposes graded provider health, and uses an adapter boundary for provider execution
 
 Provider examples:
 
@@ -109,6 +110,9 @@ Docs:
 - `docs/170-Gateway-Observability.md`
 - `docs/180-Provider-Resilience.md`
 - `docs/190-Skill-Execution-Phases.md`
+- `docs/200-Gateway-Metrics-And-Costs.md`
+- `docs/210-Provider-Health-And-Reset.md`
+- `docs/220-Gateway-Adapter-Boundary.md`
 
 Provider comparison:
 

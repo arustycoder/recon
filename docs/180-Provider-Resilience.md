@@ -10,8 +10,9 @@ Prevent a flaky provider from being hit repeatedly by the gateway during fallbac
 
 - per-provider consecutive failure counters
 - cooldown windows after repeated failures
-- cooldown-aware provider health responses
+- cooldown-aware graded provider health responses
 - routing that skips providers in cooldown when alternatives exist
+- manual reset to clear provider breaker state
 
 ### Excluded
 
@@ -35,6 +36,8 @@ Provider discovery now exposes:
 
 - `cooldown_seconds`
 - `max_consecutive_failures`
+- `prompt_cost_per_1k`
+- `completion_cost_per_1k`
 
 `DARKFACTORY_GATEWAY_PROVIDERS_JSON` may now include those fields per provider record.
 
@@ -43,3 +46,4 @@ Provider discovery now exposes:
 - the circuit breaker state is intentionally in-memory for the first phase
 - a successful request resets the provider failure counter
 - if all providers are cooling down, the gateway still returns a clear provider error instead of silently hanging
+- operators can manually reset a provider after fixing keys, network reachability, or upstream service state

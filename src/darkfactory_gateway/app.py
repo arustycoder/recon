@@ -12,6 +12,7 @@ from .models import (
     GatewayHealthResponse,
     GatewayProviderHealthResponse,
     GatewayProviderInfo,
+    GatewayProviderResetResponse,
     GatewayRequestInfo,
     GatewaySkillInfo,
 )
@@ -34,6 +35,10 @@ def create_app(service: GatewayService | None = None) -> FastAPI:
     @app.get("/api/providers/{provider_id}/health", response_model=GatewayProviderHealthResponse)
     def provider_health(provider_id: str) -> GatewayProviderHealthResponse:
         return gateway.provider_health(provider_id)
+
+    @app.post("/api/providers/{provider_id}/reset", response_model=GatewayProviderResetResponse)
+    def provider_reset(provider_id: str) -> GatewayProviderResetResponse:
+        return gateway.reset_provider(provider_id)
 
     @app.get("/api/skills", response_model=list[GatewaySkillInfo])
     def skills() -> list[GatewaySkillInfo]:

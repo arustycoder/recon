@@ -14,6 +14,7 @@ Give the gateway its own request-level visibility so fallback and skill behavior
 - request phase tracking
 - attempted provider ids
 - client request correlation id
+- execution metrics and estimated cost
 - request listing and detail endpoints
 
 ### Excluded
@@ -34,6 +35,14 @@ Tracked fields:
 - `status`
 - `phase`
 - `provider_id`
+- `target`
+- `stream_mode`
+- `latency_ms`
+- `first_token_latency_ms`
+- `prompt_tokens`
+- `completion_tokens`
+- `total_tokens`
+- `estimated_cost_usd`
 - `attempted_provider_ids`
 - `skill_ids`
 - `error_detail`

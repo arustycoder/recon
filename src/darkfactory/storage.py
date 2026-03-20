@@ -98,6 +98,14 @@ class Storage:
                     status TEXT NOT NULL,
                     phase TEXT NOT NULL DEFAULT '',
                     provider_id TEXT NOT NULL DEFAULT '',
+                    target TEXT NOT NULL DEFAULT '',
+                    stream_mode TEXT NOT NULL DEFAULT '',
+                    latency_ms INTEGER NOT NULL DEFAULT 0,
+                    first_token_latency_ms INTEGER NOT NULL DEFAULT 0,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    estimated_cost_usd REAL NOT NULL DEFAULT 0,
                     attempted_provider_ids TEXT NOT NULL DEFAULT '[]',
                     skill_ids TEXT NOT NULL DEFAULT '[]',
                     error_detail TEXT NOT NULL DEFAULT '',
@@ -108,6 +116,7 @@ class Storage:
                 """
             )
             self._ensure_request_log_columns(connection)
+            self._ensure_gateway_request_columns(connection)
 
     def _ensure_request_log_columns(self, connection: sqlite3.Connection) -> None:
         existing = {
@@ -125,6 +134,26 @@ class Storage:
             if name in existing:
                 continue
             connection.execute(f"ALTER TABLE request_logs ADD COLUMN {name} {spec}")
+
+    def _ensure_gateway_request_columns(self, connection: sqlite3.Connection) -> None:
+        existing = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(gateway_requests)").fetchall()
+        }
+        required_columns = {
+            "target": "TEXT NOT NULL DEFAULT ''",
+            "stream_mode": "TEXT NOT NULL DEFAULT ''",
+            "latency_ms": "INTEGER NOT NULL DEFAULT 0",
+            "first_token_latency_ms": "INTEGER NOT NULL DEFAULT 0",
+            "prompt_tokens": "INTEGER NOT NULL DEFAULT 0",
+            "completion_tokens": "INTEGER NOT NULL DEFAULT 0",
+            "total_tokens": "INTEGER NOT NULL DEFAULT 0",
+            "estimated_cost_usd": "REAL NOT NULL DEFAULT 0",
+        }
+        for name, spec in required_columns.items():
+            if name in existing:
+                continue
+            connection.execute(f"ALTER TABLE gateway_requests ADD COLUMN {name} {spec}")
 
     def bootstrap(self) -> None:
         if self.list_projects():
@@ -494,6 +523,14 @@ class Storage:
         status: str,
         phase: str = "",
         provider_id: str = "",
+        target: str = "",
+        stream_mode: str = "",
+        latency_ms: int = 0,
+        first_token_latency_ms: int = 0,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
+        estimated_cost_usd: float = 0.0,
         attempted_provider_ids: list[str] | None = None,
         skill_ids: list[str] | None = None,
         error_detail: str = "",
@@ -508,17 +545,33 @@ class Storage:
                     status,
                     phase,
                     provider_id,
+                    target,
+                    stream_mode,
+                    latency_ms,
+                    first_token_latency_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    estimated_cost_usd,
                     attempted_provider_ids,
                     skill_ids,
                     error_detail
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(request_id) DO UPDATE SET
                     client_request_id = excluded.client_request_id,
                     session_id = excluded.session_id,
                     status = excluded.status,
                     phase = excluded.phase,
                     provider_id = excluded.provider_id,
+                    target = excluded.target,
+                    stream_mode = excluded.stream_mode,
+                    latency_ms = excluded.latency_ms,
+                    first_token_latency_ms = excluded.first_token_latency_ms,
+                    prompt_tokens = excluded.prompt_tokens,
+                    completion_tokens = excluded.completion_tokens,
+                    total_tokens = excluded.total_tokens,
+                    estimated_cost_usd = excluded.estimated_cost_usd,
                     attempted_provider_ids = excluded.attempted_provider_ids,
                     skill_ids = excluded.skill_ids,
                     error_detail = excluded.error_detail,
@@ -531,6 +584,14 @@ class Storage:
                     status,
                     phase,
                     provider_id,
+                    target,
+                    stream_mode,
+                    latency_ms,
+                    first_token_latency_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    estimated_cost_usd,
                     json.dumps(attempted_provider_ids or [], ensure_ascii=False),
                     json.dumps(skill_ids or [], ensure_ascii=False),
                     error_detail,
@@ -548,6 +609,14 @@ class Storage:
                     status,
                     phase,
                     provider_id,
+                    target,
+                    stream_mode,
+                    latency_ms,
+                    first_token_latency_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    estimated_cost_usd,
                     attempted_provider_ids,
                     skill_ids,
                     error_detail,
@@ -572,6 +641,14 @@ class Storage:
                     status,
                     phase,
                     provider_id,
+                    target,
+                    stream_mode,
+                    latency_ms,
+                    first_token_latency_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    estimated_cost_usd,
                     attempted_provider_ids,
                     skill_ids,
                     error_detail,

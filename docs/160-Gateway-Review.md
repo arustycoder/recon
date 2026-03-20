@@ -6,7 +6,7 @@ The gateway now has three meaningful layers instead of one:
 
 - provider profiles and fallback routing
 - skill template rendering with parameter injection
-- normalized gateway APIs for chat, stream, cancel, and provider health
+- normalized gateway APIs for chat, stream, cancel, provider health, and request inspection
 
 ## Reflection
 
@@ -15,6 +15,7 @@ The gateway now has three meaningful layers instead of one:
 - reusing `AssistantService` kept the first gateway implementation small
 - env-driven provider profiles make local experimentation fast
 - a deterministic skill pipeline is much easier to debug than agentic skill execution
+- the new adapter boundary lets the gateway evolve without staying hard-coupled to desktop orchestration forever
 
 ### What is still intentionally missing
 
@@ -25,7 +26,7 @@ The gateway now has three meaningful layers instead of one:
 
 - fallback can hide flaky providers if gateway-side logs are not surfaced clearly
 - phase-based skills are useful, but they are not yet true tools
-- direct reuse of desktop provider code is efficient now but will eventually need separation once gateway-specific concerns grow
+- the default gateway adapter still reuses desktop provider code, so the boundary is cleaner but not fully independent yet
 
 ## Industry Comparison
 
@@ -51,3 +52,4 @@ The gateway now has three meaningful layers instead of one:
 - add durable gateway metrics and cost tracking, not only request status
 - add distributed provider resilience state for multi-process deployments
 - evolve phase-based skills toward tool-using workflows only when the product truly needs them
+- replace the default `AssistantService` adapter with gateway-native provider adapters over time

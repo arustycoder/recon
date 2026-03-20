@@ -73,6 +73,14 @@ class GatewayRequestRecord:
     status: str
     phase: str
     provider_id: str
+    target: str
+    stream_mode: str
+    latency_ms: int
+    first_token_latency_ms: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    estimated_cost_usd: float
     attempted_provider_ids: str
     skill_ids: str
     error_detail: str
@@ -83,6 +91,8 @@ class GatewayRequestRecord:
 @dataclass(slots=True)
 class ResponseMetrics:
     stream_mode: str = ""
+    latency_ms: int = 0
+    first_token_latency_ms: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0

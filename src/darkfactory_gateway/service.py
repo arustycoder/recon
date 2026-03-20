@@ -7,14 +7,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterator
 
-from darkfactory.models import Message, Project, Session
-from darkfactory.services import AssistantService
+from darkfactory.models import Message, Project, ResponseMetrics, Session
 from darkfactory.storage import Storage
 
+from .adapters import GatewayAdapterFactory, GatewayProviderAdapter
 from .models import (
     GatewayChatRequest,
     GatewayChatResponse,
     GatewayProviderHealthResponse,
+    GatewayProviderResetResponse,
     GatewayRequestInfo,
 )
 from .registry import ProviderRecord, ProviderRegistry
@@ -30,6 +31,14 @@ class RequestState:
     status: str = "created"
     phase: str = "created"
     provider_id: str = ""
+    target: str = ""
+    stream_mode: str = ""
+    latency_ms: int = 0
+    first_token_latency_ms: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
     attempted_provider_ids: list[str] | None = None
     skill_ids: list[str] | None = None
     error_detail: str = ""
@@ -44,6 +53,14 @@ class RequestState:
             "status": self.status,
             "phase": self.phase,
             "provider_id": self.provider_id,
+            "target": self.target,
+            "stream_mode": self.stream_mode,
+            "latency_ms": self.latency_ms,
+            "first_token_latency_ms": self.first_token_latency_ms,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "estimated_cost_usd": self.estimated_cost_usd,
             "attempted_provider_ids": list(self.attempted_provider_ids or []),
             "skill_ids": list(self.skill_ids or []),
             "error_detail": self.error_detail,
@@ -100,14 +117,37 @@ class RequestTracker:
         request_id: str,
         provider_id: str,
         attempted_provider_ids: list[str],
+        target: str = "",
     ) -> None:
         state = self._states.get(request_id)
         if state is None:
             return
         state.provider_id = provider_id
+        state.target = target
         state.attempted_provider_ids = list(attempted_provider_ids)
         state.status = "running"
         state.phase = "provider_routing"
+        state.updated_at = self._timestamp()
+
+    def apply_metrics(
+        self,
+        request_id: str,
+        *,
+        target: str,
+        metrics: ResponseMetrics,
+        estimated_cost_usd: float,
+    ) -> None:
+        state = self._states.get(request_id)
+        if state is None:
+            return
+        state.target = target
+        state.stream_mode = metrics.stream_mode
+        state.latency_ms = metrics.latency_ms
+        state.first_token_latency_ms = metrics.first_token_latency_ms
+        state.prompt_tokens = metrics.prompt_tokens
+        state.completion_tokens = metrics.completion_tokens
+        state.total_tokens = metrics.total_tokens
+        state.estimated_cost_usd = round(estimated_cost_usd, 6)
         state.updated_at = self._timestamp()
 
     def mark_phase(self, request_id: str, phase: str) -> None:
@@ -185,11 +225,13 @@ class GatewayService:
         provider_registry: ProviderRegistry | None = None,
         skill_registry: SkillRegistry | None = None,
         storage: Storage | None = None,
+        adapter_factory: GatewayAdapterFactory | None = None,
     ) -> None:
         self.provider_registry = provider_registry or ProviderRegistry()
         self.skill_registry = skill_registry or SkillRegistry()
         self.request_tracker = RequestTracker()
         self.storage = storage or Storage()
+        self.adapter_factory = adapter_factory or GatewayAdapterFactory()
         self._provider_circuits: dict[str, ProviderCircuitState] = {}
 
     def health(self) -> dict[str, str]:
@@ -220,27 +262,58 @@ class GatewayService:
     def provider_health(self, provider_id: str) -> GatewayProviderHealthResponse:
         provider = self.provider_registry.get(provider_id)
         circuit = self._provider_circuits.get(provider.id, ProviderCircuitState())
-        remaining = max(0, int(circuit.cooldown_until - time.time()))
+        remaining = self._provider_cooldown_remaining(provider.id)
+        if not provider.enabled:
+            return GatewayProviderHealthResponse(
+                provider_id=provider.id,
+                status="disabled",
+                detail="Provider is disabled in registry",
+                consecutive_failures=circuit.consecutive_failures,
+                cooldown_remaining_seconds=0,
+            )
         if remaining > 0:
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
-                status="error",
+                status="cooldown",
                 detail=f"Provider is cooling down for {remaining}s",
+                consecutive_failures=circuit.consecutive_failures,
+                cooldown_remaining_seconds=remaining,
             )
-        assistant = AssistantService(provider.settings)
-        try:
-            detail = assistant.health_check(provider.settings)
-        except Exception as exc:
+        misconfigured = self._provider_misconfiguration(provider)
+        if misconfigured:
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
-                status="error",
-                detail=str(exc),
+                status="misconfigured",
+                detail=misconfigured,
+                consecutive_failures=circuit.consecutive_failures,
+                cooldown_remaining_seconds=0,
             )
+
+        adapter = self.adapter_factory.create(provider.settings)
+        try:
+            detail = adapter.health_check()
+        except Exception as exc:
+            status = self._classify_provider_exception(exc)
+            return GatewayProviderHealthResponse(
+                provider_id=provider.id,
+                status=status,
+                detail=str(exc),
+                consecutive_failures=circuit.consecutive_failures,
+                cooldown_remaining_seconds=0,
+            )
+        status = "degraded" if circuit.consecutive_failures > 0 else "healthy"
         return GatewayProviderHealthResponse(
             provider_id=provider.id,
-            status="ok",
+            status=status,
             detail=detail,
+            consecutive_failures=circuit.consecutive_failures,
+            cooldown_remaining_seconds=0,
         )
+
+    def reset_provider(self, provider_id: str) -> GatewayProviderResetResponse:
+        self.provider_registry.get(provider_id)
+        self._provider_circuits[provider_id] = ProviderCircuitState()
+        return GatewayProviderResetResponse(provider_id=provider_id, status="reset")
 
     def chat(self, request: GatewayChatRequest) -> GatewayChatResponse:
         providers = self.provider_registry.resolve_chain(
@@ -255,7 +328,7 @@ class GatewayService:
         self._persist_request_state(request_id)
         attempted_provider_ids: list[str] = []
         final_provider: ProviderRecord | None = None
-        assistant: AssistantService | None = None
+        adapter: GatewayProviderAdapter | None = None
         reply = ""
         last_error: Exception | None = None
 
@@ -265,13 +338,28 @@ class GatewayService:
                     request,
                     provider,
                 )
+                adapter = self.adapter_factory.create(provider.settings)
                 attempted_provider_ids.append(provider.id)
                 self.request_tracker.mark_provider_attempt(
                     request_id,
                     provider.id,
                     attempted_provider_ids,
+                    target=adapter.target_label(),
                 )
                 self._persist_request_state(request_id)
+                if not provider.enabled:
+                    detail = "Provider is disabled in registry"
+                    self.request_tracker.mark_error(
+                        request_id,
+                        provider_id=provider.id,
+                        attempted_provider_ids=attempted_provider_ids,
+                        detail=detail,
+                    )
+                    self._persist_request_state(request_id)
+                    last_error = RuntimeError(detail)
+                    if request.provider_strategy != "fallback":
+                        raise last_error
+                    continue
                 cooldown_remaining = self._provider_cooldown_remaining(provider.id)
                 if cooldown_remaining > 0:
                     detail = f"Provider is cooling down for {cooldown_remaining}s"
@@ -286,7 +374,6 @@ class GatewayService:
                     if request.provider_strategy != "fallback":
                         raise last_error
                     continue
-                assistant = AssistantService(provider.settings)
                 project, session, recent_messages, user_message = self._to_domain_inputs(
                     request,
                     pre_context_skills=pre_context_skills,
@@ -296,12 +383,11 @@ class GatewayService:
                     self.request_tracker.mark_phase(request_id, "model_execution")
                     self._persist_request_state(request_id)
                     reply = "".join(
-                        assistant.stream_reply(
+                        adapter.stream_reply(
                             project=project,
                             session=session,
                             recent_messages=recent_messages,
                             user_message=user_message,
-                            settings=provider.settings,
                             client_request_id=request_id,
                         )
                     )
@@ -313,6 +399,17 @@ class GatewayService:
                             selected_skills=selected_skills,
                             reply=reply,
                         )
+                    adapter_result = adapter.last_result()
+                    estimated_cost = self._estimate_cost_usd(
+                        provider,
+                        adapter_result.metrics,
+                    )
+                    self.request_tracker.apply_metrics(
+                        request_id,
+                        target=adapter_result.target,
+                        metrics=adapter_result.metrics,
+                        estimated_cost_usd=estimated_cost,
+                    )
                     final_provider = provider
                     self._record_provider_success(provider.id)
                     self.request_tracker.mark_done(
@@ -335,20 +432,24 @@ class GatewayService:
                     if request.provider_strategy != "fallback":
                         raise
 
-            if final_provider is None or assistant is None:
+            if final_provider is None or adapter is None:
                 raise RuntimeError(str(last_error) if last_error else "No provider resolved")
 
-            metrics = assistant.last_response_metrics()
+            adapter_result = adapter.last_result()
             return GatewayChatResponse(
                 request_id=request_id,
                 client_request_id=request.client_request_id,
                 provider_id=final_provider.id,
+                target=adapter_result.target,
                 attempted_provider_ids=attempted_provider_ids,
                 reply=reply,
-                stream_mode=metrics.stream_mode,
-                prompt_tokens=metrics.prompt_tokens,
-                completion_tokens=metrics.completion_tokens,
-                total_tokens=metrics.total_tokens,
+                stream_mode=adapter_result.metrics.stream_mode,
+                latency_ms=adapter_result.metrics.latency_ms,
+                first_token_latency_ms=adapter_result.metrics.first_token_latency_ms,
+                prompt_tokens=adapter_result.metrics.prompt_tokens,
+                completion_tokens=adapter_result.metrics.completion_tokens,
+                total_tokens=adapter_result.metrics.total_tokens,
+                estimated_cost_usd=self._estimate_cost_usd(final_provider, adapter_result.metrics),
             )
         finally:
             self.request_tracker.complete(request_id)
@@ -372,13 +473,35 @@ class GatewayService:
                     request,
                     provider,
                 )
+                adapter = self.adapter_factory.create(provider.settings)
                 attempted_provider_ids.append(provider.id)
                 self.request_tracker.mark_provider_attempt(
                     request_id,
                     provider.id,
                     attempted_provider_ids,
+                    target=adapter.target_label(),
                 )
                 self._persist_request_state(request_id)
+                if not provider.enabled:
+                    detail = "Provider is disabled in registry"
+                    self.request_tracker.mark_error(
+                        request_id,
+                        provider_id=provider.id,
+                        attempted_provider_ids=attempted_provider_ids,
+                        detail=detail,
+                    )
+                    self._persist_request_state(request_id)
+                    if request.provider_strategy != "fallback":
+                        raise RuntimeError(detail)
+                    yield self._sse(
+                        {
+                            "type": "provider_error",
+                            "request_id": request_id,
+                            "provider_id": provider.id,
+                            "detail": detail,
+                        }
+                    )
+                    continue
                 cooldown_remaining = self._provider_cooldown_remaining(provider.id)
                 if cooldown_remaining > 0:
                     detail = f"Provider is cooling down for {cooldown_remaining}s"
@@ -405,7 +528,6 @@ class GatewayService:
                     pre_context_skills=pre_context_skills,
                     prompt_skills=prompt_skills,
                 )
-                assistant = AssistantService(provider.settings)
                 yield self._sse(
                     {
                         "type": "request",
@@ -419,12 +541,11 @@ class GatewayService:
                     self.request_tracker.mark_phase(request_id, "model_execution")
                     self._persist_request_state(request_id)
                     buffered_chunks: list[str] = []
-                    for chunk in assistant.stream_reply(
+                    for chunk in adapter.stream_reply(
                         project=project,
                         session=session,
                         recent_messages=recent_messages,
                         user_message=user_message,
-                        settings=provider.settings,
                         client_request_id=request_id,
                     ):
                         if self.request_tracker.is_canceled(request_id):
@@ -445,7 +566,16 @@ class GatewayService:
                             reply="".join(buffered_chunks),
                         )
                         yield self._sse({"type": "delta", "delta": processed_reply})
-                    metrics = assistant.last_response_metrics()
+                    adapter_result = adapter.last_result()
+                    estimated_cost = self._estimate_cost_usd(provider, adapter_result.metrics)
+                    self.request_tracker.apply_metrics(
+                        request_id,
+                        target=adapter_result.target,
+                        metrics=adapter_result.metrics,
+                        estimated_cost_usd=estimated_cost,
+                    )
+                    self._persist_request_state(request_id)
+                    metrics = adapter_result.metrics
                     if metrics.total_tokens:
                         yield self._sse(
                             {
@@ -453,6 +583,7 @@ class GatewayService:
                                 "prompt_tokens": metrics.prompt_tokens,
                                 "completion_tokens": metrics.completion_tokens,
                                 "total_tokens": metrics.total_tokens,
+                                "estimated_cost_usd": estimated_cost,
                             }
                         )
                     yield self._sse(
@@ -602,6 +733,14 @@ class GatewayService:
             status=state.status,
             phase=state.phase,
             provider_id=state.provider_id,
+            target=state.target,
+            stream_mode=state.stream_mode,
+            latency_ms=state.latency_ms,
+            first_token_latency_ms=state.first_token_latency_ms,
+            prompt_tokens=state.prompt_tokens,
+            completion_tokens=state.completion_tokens,
+            total_tokens=state.total_tokens,
+            estimated_cost_usd=state.estimated_cost_usd,
             attempted_provider_ids=list(state.attempted_provider_ids or []),
             skill_ids=list(state.skill_ids or []),
             error_detail=state.error_detail,
@@ -614,6 +753,14 @@ class GatewayService:
             status=record.status,
             phase=record.phase,
             provider_id=record.provider_id,
+            target=record.target,
+            stream_mode=record.stream_mode,
+            latency_ms=record.latency_ms,
+            first_token_latency_ms=record.first_token_latency_ms,
+            prompt_tokens=record.prompt_tokens,
+            completion_tokens=record.completion_tokens,
+            total_tokens=record.total_tokens,
+            estimated_cost_usd=record.estimated_cost_usd,
             attempted_provider_ids=json.loads(record.attempted_provider_ids or "[]"),
             skill_ids=json.loads(record.skill_ids or "[]"),
             error_detail=record.error_detail,
@@ -646,6 +793,45 @@ class GatewayService:
     def _provider_cooldown_remaining(self, provider_id: str) -> int:
         state = self._provider_circuits.get(provider_id, ProviderCircuitState())
         return max(0, int(state.cooldown_until - time.time()))
+
+    def _provider_misconfiguration(self, provider: ProviderRecord) -> str:
+        settings = provider.settings
+        if provider.kind == "mock":
+            return ""
+        if provider.kind == "ollama":
+            if not settings.ollama_model:
+                return "Ollama provider requires ollama_model"
+            return ""
+        if provider.kind == "openai_compatible":
+            if not settings.openai_base_url:
+                return "OpenAI-compatible provider requires openai_base_url"
+            if not settings.openai_model:
+                return "OpenAI-compatible provider requires openai_model"
+            return ""
+        if provider.kind == "http_backend":
+            if not settings.api_url:
+                return "HTTP backend provider requires api_url"
+            return ""
+        return ""
+
+    def _classify_provider_exception(self, exc: Exception) -> str:
+        text = str(exc).lower()
+        if any(token in text for token in ("connect", "timeout", "dns", "network", "refused")):
+            return "unreachable"
+        return "degraded"
+
+    def _estimate_cost_usd(self, provider: ProviderRecord, metrics: ResponseMetrics) -> float:
+        prompt_cost = (
+            (metrics.prompt_tokens / 1000.0) * provider.prompt_cost_per_1k
+            if provider.prompt_cost_per_1k > 0
+            else 0.0
+        )
+        completion_cost = (
+            (metrics.completion_tokens / 1000.0) * provider.completion_cost_per_1k
+            if provider.completion_cost_per_1k > 0
+            else 0.0
+        )
+        return round(prompt_cost + completion_cost, 6)
 
     def _sse(self, data: dict[str, object]) -> str:
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"

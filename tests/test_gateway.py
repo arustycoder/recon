@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,6 +17,7 @@ if str(SRC) not in sys.path:
 
 from darkfactory.models import ProviderSettings
 from darkfactory.storage import Storage
+from darkfactory_gateway.adapters import GatewayAdapterFactory, GatewayProviderAdapter
 from darkfactory_gateway.app import create_app
 from darkfactory_gateway.models import GatewayChatRequest
 from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
@@ -48,6 +50,50 @@ def sample_request() -> dict:
     }
 
 
+@dataclass
+class FakeAdapter(GatewayProviderAdapter):
+    target: str = "fake-target"
+    reply_text: str = "fake-reply"
+    health_text: str = "fake-health"
+
+    def __post_init__(self) -> None:
+        from darkfactory.models import ResponseMetrics
+
+        self._metrics = ResponseMetrics(
+            stream_mode="single",
+            latency_ms=25,
+            first_token_latency_ms=5,
+            prompt_tokens=120,
+            completion_tokens=80,
+            total_tokens=200,
+        )
+
+    def reply(self, **kwargs) -> str:
+        return self.reply_text
+
+    def stream_reply(self, **kwargs):
+        yield self.reply_text
+
+    def health_check(self) -> str:
+        return self.health_text
+
+    def target_label(self) -> str:
+        return self.target
+
+    def last_result(self):
+        from darkfactory_gateway.adapters import GatewayAdapterResult
+
+        return GatewayAdapterResult(target=self.target, metrics=self._metrics)
+
+
+class FakeAdapterFactory(GatewayAdapterFactory):
+    def __init__(self, adapter: FakeAdapter) -> None:
+        self.adapter = adapter
+
+    def create(self, settings: ProviderSettings) -> GatewayProviderAdapter:
+        return self.adapter
+
+
 class GatewayAppTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -77,6 +123,7 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(body["provider_id"], "mock")
         self.assertEqual(body["client_request_id"], "client-001")
         self.assertEqual(body["attempted_provider_ids"], ["mock"])
+        self.assertEqual(body["target"], "mock")
         self.assertIn("【结论】", body["reply"])
 
     def test_stream_returns_sse_events(self) -> None:
@@ -92,7 +139,13 @@ class GatewayAppTests(unittest.TestCase):
         response = self.client.get("/api/providers/mock/health")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "ok")
+        self.assertEqual(response.json()["status"], "healthy")
+
+    def test_provider_reset_endpoint(self) -> None:
+        response = self.client.post("/api/providers/mock/reset")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "reset")
 
     def test_request_endpoints_return_completed_request(self) -> None:
         chat = self.client.post("/api/chat", json=sample_request())
@@ -107,6 +160,7 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(detail.json()["status"], "completed")
         self.assertEqual(detail.json()["phase"], "completed")
         self.assertEqual(detail.json()["client_request_id"], "client-001")
+        self.assertGreaterEqual(detail.json()["latency_ms"], 0)
 
     def test_cancel_endpoint_marks_request(self) -> None:
         request_id = self.service.request_tracker.create()
@@ -151,7 +205,7 @@ class GatewayAppTests(unittest.TestCase):
                 raise RuntimeError("broken provider")
             yield "fallback reply"
 
-        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
             response = service.chat(
                 service_request(
                     provider_id=None,
@@ -185,7 +239,7 @@ class GatewayAppTests(unittest.TestCase):
             captured["user_message"] = kwargs["user_message"]
             yield "ok"
 
-        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
             service.chat(
                 service_request(
                     skill_ids=["custom"],
@@ -218,7 +272,7 @@ class GatewayAppTests(unittest.TestCase):
         def fake_stream_reply(self, **kwargs):
             yield "原始回复"
 
-        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
             response = service.chat(
                 service_request(
                     skill_ids=["final_wrap"],
@@ -257,7 +311,7 @@ class GatewayAppTests(unittest.TestCase):
             raise RuntimeError("provider failed")
             yield ""
 
-        with patch("darkfactory_gateway.service.AssistantService.stream_reply", fake_stream_reply):
+        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
             with self.assertRaises(RuntimeError):
                 service.chat(service_request(provider_id="fragile", provider_strategy="default"))
 
@@ -266,8 +320,88 @@ class GatewayAppTests(unittest.TestCase):
 
         self.assertIn("cooling down", str(second_error.exception))
         health = service.provider_health("fragile")
-        self.assertEqual(health.status, "error")
+        self.assertEqual(health.status, "cooldown")
         self.assertIn("cooling down", health.detail)
+
+    def test_provider_reset_endpoint_clears_cooldown(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="fragile",
+                    kind="mock",
+                    label="Fragile",
+                    settings=ProviderSettings(provider="mock"),
+                    default=True,
+                    cooldown_seconds=60,
+                    max_consecutive_failures=1,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "reset.db"),
+        )
+        service._record_provider_failure("fragile", registry.get("fragile"))
+
+        before = service.provider_health("fragile")
+        reset = service.reset_provider("fragile")
+        after = service.provider_health("fragile")
+
+        self.assertEqual(before.status, "cooldown")
+        self.assertEqual(reset.status, "reset")
+        self.assertEqual(after.status, "healthy")
+
+    def test_provider_health_reports_misconfigured(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="badcfg",
+                    kind="openai_compatible",
+                    label="Bad Config",
+                    settings=ProviderSettings(provider="openai_compatible"),
+                    default=True,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "health.db"),
+        )
+
+        health = service.provider_health("badcfg")
+
+        self.assertEqual(health.status, "misconfigured")
+
+    def test_service_supports_custom_adapter_factory(self) -> None:
+        adapter = FakeAdapter(reply_text="adapter-reply", target="adapter-target")
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="mock",
+                    kind="mock",
+                    label="Mock",
+                    settings=ProviderSettings(provider="mock"),
+                    default=True,
+                    prompt_cost_per_1k=0.001,
+                    completion_cost_per_1k=0.002,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "adapter.db"),
+            adapter_factory=FakeAdapterFactory(adapter),
+        )
+
+        response = service.chat(service_request())
+        request_info = service.get_request(response.request_id)
+
+        self.assertEqual(response.reply, "adapter-reply")
+        self.assertEqual(response.target, "adapter-target")
+        self.assertEqual(response.total_tokens, 200)
+        self.assertAlmostEqual(response.estimated_cost_usd, 0.00028)
+        self.assertEqual(request_info.target, "adapter-target")
+        self.assertEqual(request_info.total_tokens, 200)
 
 
 def service_request(**updates):

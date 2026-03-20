@@ -38,6 +38,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Automatic session title and summary generation
 - Gateway / service-layer protocol reserved for future deployment
 - Gateway request persistence, provider resilience, and phased skill execution
+- Gateway-side metrics, provider health grading/reset, and adapter abstraction
 - Windows installer packaging requirement
 
 ### Excluded
@@ -186,6 +187,7 @@ Model / Business Logic / Data Source
 - Reserve gateway protocol endpoints for future server-side cancellation and orchestration
 - Add provider profiles, fallback routing, and skill templating in the gateway layer
 - Add persistent gateway request records, cooldown-aware routing, and phase-based skills
+- Add gateway-side metrics/cost tracking, graded provider health, and adapter abstraction
 
 ### Phase 5: Domainization
 
