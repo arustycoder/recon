@@ -566,6 +566,119 @@ class RequestLogDialog(QDialog):
         self.populate()
 
 
+class GatewayProviderDialog(QDialog):
+    def __init__(
+        self,
+        service: AssistantService,
+        settings: ProviderSettings,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._settings = settings
+        self.setWindowTitle("Gateway Provider 运维")
+        self.resize(980, 480)
+
+        self.summary_label = QLabel("正在加载 Gateway provider 信息...")
+        self.provider_tree = QTreeWidget()
+        self.provider_tree.setRootIsDecorated(False)
+        self.provider_tree.setAlternatingRowColors(True)
+        self.provider_tree.setHeaderLabels(
+            [
+                "Provider",
+                "Kind",
+                "状态",
+                "失败次数",
+                "冷却剩余(s)",
+                "详情",
+            ]
+        )
+
+        refresh_button = QPushButton("刷新")
+        refresh_button.clicked.connect(self.populate)
+
+        reset_button = QPushButton("重置选中 Provider")
+        reset_button.clicked.connect(self.reset_selected_provider)
+
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(self.accept)
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(refresh_button)
+        button_row.addWidget(reset_button)
+        button_row.addStretch(1)
+        button_row.addWidget(close_button)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.summary_label)
+        layout.addWidget(self.provider_tree)
+        layout.addLayout(button_row)
+
+        self.populate()
+
+    def populate(self) -> None:
+        self.provider_tree.clear()
+        try:
+            providers = self._service.fetch_gateway_providers(self._settings)
+        except Exception as exc:
+            self.summary_label.setText(str(exc))
+            return
+
+        statuses: list[str] = []
+        for provider in providers:
+            provider_id = str(provider.get("id") or "")
+            try:
+                health = self._service.fetch_gateway_provider_health(provider_id, self._settings)
+            except Exception as exc:
+                health = {
+                    "status": "error",
+                    "detail": str(exc),
+                    "consecutive_failures": 0,
+                    "cooldown_remaining_seconds": 0,
+                }
+            item = QTreeWidgetItem(
+                [
+                    provider_id,
+                    str(provider.get("kind") or ""),
+                    str(health.get("status") or ""),
+                    str(health.get("consecutive_failures") or 0),
+                    str(health.get("cooldown_remaining_seconds") or 0),
+                    str(health.get("detail") or ""),
+                ]
+            )
+            self.provider_tree.addTopLevelItem(item)
+            statuses.append(str(health.get("status") or "unknown"))
+
+        if providers:
+            self.summary_label.setText(
+                f"共 {len(providers)} 个 Provider | 状态: {', '.join(statuses)}"
+            )
+        else:
+            self.summary_label.setText("当前 Gateway 未返回任何 Provider。")
+        for column in range(self.provider_tree.columnCount() - 1):
+            self.provider_tree.resizeColumnToContents(column)
+
+    def reset_selected_provider(self) -> None:
+        item = self.provider_tree.currentItem()
+        if item is None:
+            QMessageBox.information(self, "Provider 运维", "请先选择一个 Provider。")
+            return
+        provider_id = item.text(0).strip()
+        if not provider_id:
+            return
+        try:
+            result = self._service.reset_gateway_provider(provider_id, self._settings)
+        except Exception as exc:
+            QMessageBox.warning(self, "Provider 运维", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Provider 运维",
+            f"{provider_id} 已重置：{result.get('status', 'ok')}",
+        )
+        self.populate()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, storage: Storage, assistant: AssistantService) -> None:
         super().__init__()
@@ -736,6 +849,9 @@ class MainWindow(QMainWindow):
         logs_action = QAction("请求日志", self)
         logs_action.triggered.connect(self.open_request_log_dialog)
 
+        gateway_providers_action = QAction("Gateway Providers", self)
+        gateway_providers_action.triggered.connect(self.open_gateway_provider_dialog)
+
         menubar = self.menuBar()
         file_menu = menubar.addMenu("文件")
         file_menu.addAction(create_project_action)
@@ -745,6 +861,7 @@ class MainWindow(QMainWindow):
         tools_menu = menubar.addMenu("工具")
         tools_menu.addAction(settings_action)
         tools_menu.addAction(logs_action)
+        tools_menu.addAction(gateway_providers_action)
 
         self._set_status_message()
 
@@ -1041,6 +1158,14 @@ class MainWindow(QMainWindow):
 
     def open_request_log_dialog(self) -> None:
         dialog = RequestLogDialog(self.storage, self)
+        dialog.exec()
+
+    def open_gateway_provider_dialog(self) -> None:
+        dialog = GatewayProviderDialog(
+            self.assistant,
+            self.assistant.current_settings(),
+            self,
+        )
         dialog.exec()
 
     def create_project(self) -> None:

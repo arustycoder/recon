@@ -223,6 +223,70 @@ class AssistantService:
             response.raise_for_status()
         return cancel_url
 
+    def fetch_gateway_providers(
+        self,
+        settings: ProviderSettings | None = None,
+    ) -> list[dict]:
+        config = settings or self.current_settings()
+        providers_url = self.gateway_capabilities(config)["providers_url"]
+        if not providers_url:
+            raise ValueError("HTTP backend providers URL is not configured")
+
+        import httpx
+
+        timeout = min(15.0, float(self.request_timeout_seconds(config)))
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.get(providers_url)
+            response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list):
+            raise ValueError("Gateway providers response must be a list")
+        return [item for item in data if isinstance(item, dict)]
+
+    def fetch_gateway_provider_health(
+        self,
+        provider_id: str,
+        settings: ProviderSettings | None = None,
+    ) -> dict:
+        config = settings or self.current_settings()
+        providers_url = self.gateway_capabilities(config)["providers_url"]
+        if not providers_url:
+            raise ValueError("HTTP backend providers URL is not configured")
+
+        import httpx
+
+        timeout = min(15.0, float(self.request_timeout_seconds(config)))
+        url = providers_url.rstrip("/") + f"/{provider_id}/health"
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.get(url)
+            response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Gateway provider health response must be an object")
+        return data
+
+    def reset_gateway_provider(
+        self,
+        provider_id: str,
+        settings: ProviderSettings | None = None,
+    ) -> dict:
+        config = settings or self.current_settings()
+        providers_url = self.gateway_capabilities(config)["providers_url"]
+        if not providers_url:
+            raise ValueError("HTTP backend providers URL is not configured")
+
+        import httpx
+
+        timeout = min(15.0, float(self.request_timeout_seconds(config)))
+        url = providers_url.rstrip("/") + f"/{provider_id}/reset"
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.post(url)
+            response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Gateway provider reset response must be an object")
+        return data
+
     def _reply_via_http(
         self,
         *,

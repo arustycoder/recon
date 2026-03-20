@@ -22,6 +22,7 @@ from darkfactory.models import ProviderSettings
 from darkfactory.services import AssistantService
 from darkfactory.storage import Storage
 from darkfactory.ui import (
+    GatewayProviderDialog,
     MainWindow,
     RequestContext,
     RequestLogDialog,
@@ -203,6 +204,66 @@ class MainWindowTests(unittest.TestCase):
             dialog.clear_logs()
 
         self.assertEqual(len(self.storage.list_request_logs(provider="mock")), 0)
+        dialog.close()
+
+    def test_gateway_provider_dialog_shows_gateway_status(self) -> None:
+        settings = ProviderSettings(
+            provider="http_backend",
+            api_url="http://localhost:8000/api/chat",
+        )
+        self.window.assistant.update_settings(settings)
+        with patch.object(
+            self.window.assistant,
+            "fetch_gateway_providers",
+            return_value=[{"id": "mock", "kind": "mock"}],
+        ), patch.object(
+            self.window.assistant,
+            "fetch_gateway_provider_health",
+            return_value={
+                "status": "healthy",
+                "detail": "ok",
+                "consecutive_failures": 0,
+                "cooldown_remaining_seconds": 0,
+            },
+        ):
+            dialog = GatewayProviderDialog(self.window.assistant, settings)
+
+        self.assertEqual(dialog.provider_tree.topLevelItemCount(), 1)
+        self.assertEqual(dialog.provider_tree.topLevelItem(0).text(0), "mock")
+        self.assertEqual(dialog.provider_tree.topLevelItem(0).text(2), "healthy")
+        dialog.close()
+
+    def test_gateway_provider_dialog_can_reset_selected_provider(self) -> None:
+        settings = ProviderSettings(
+            provider="http_backend",
+            api_url="http://localhost:8000/api/chat",
+        )
+        with patch.object(
+            self.window.assistant,
+            "fetch_gateway_providers",
+            return_value=[{"id": "fragile", "kind": "openai_compatible"}],
+        ), patch.object(
+            self.window.assistant,
+            "fetch_gateway_provider_health",
+            return_value={
+                "status": "cooldown",
+                "detail": "cooling down",
+                "consecutive_failures": 2,
+                "cooldown_remaining_seconds": 30,
+            },
+        ), patch.object(
+            self.window.assistant,
+            "reset_gateway_provider",
+            return_value={"provider_id": "fragile", "status": "reset"},
+        ) as reset_mock, patch(
+            "darkfactory.ui.QMessageBox.information",
+            return_value=QMessageBox.StandardButton.Ok,
+        ):
+            dialog = GatewayProviderDialog(self.window.assistant, settings)
+            dialog.provider_tree.setCurrentItem(dialog.provider_tree.topLevelItem(0))
+            dialog.reset_selected_provider()
+
+        reset_mock.assert_called_once_with("fragile", settings)
         dialog.close()
 
 

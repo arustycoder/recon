@@ -206,6 +206,46 @@ class AssistantServiceTests(unittest.TestCase):
             "req-abc",
         )
 
+    def test_fetch_gateway_providers_reads_gateway_registry(self) -> None:
+        settings = ProviderSettings(
+            provider="http_backend",
+            api_url="http://localhost:8000/api/chat",
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = [{"id": "mock"}]
+        client = Mock()
+        client.get.return_value = response
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=client)
+        context_manager.__exit__ = Mock(return_value=None)
+
+        with patch("httpx.Client", return_value=context_manager):
+            providers = self.service.fetch_gateway_providers(settings)
+
+        self.assertEqual(providers[0]["id"], "mock")
+        self.assertIn("/api/providers", client.get.call_args.args[0])
+
+    def test_reset_gateway_provider_posts_reset_endpoint(self) -> None:
+        settings = ProviderSettings(
+            provider="http_backend",
+            api_url="http://localhost:8000/api/chat",
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"provider_id": "mock", "status": "reset"}
+        client = Mock()
+        client.post.return_value = response
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=client)
+        context_manager.__exit__ = Mock(return_value=None)
+
+        with patch("httpx.Client", return_value=context_manager):
+            result = self.service.reset_gateway_provider("mock", settings)
+
+        self.assertEqual(result["status"], "reset")
+        self.assertTrue(client.post.call_args.args[0].endswith("/api/providers/mock/reset"))
+
 
 if __name__ == "__main__":
     unittest.main()

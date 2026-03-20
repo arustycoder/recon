@@ -112,6 +112,7 @@ Docs:
 - `docs/180-Provider-Resilience.md`
 - `docs/190-Skill-Execution-Phases.md`
 - `docs/200-Gateway-Request-Analytics.md`
+- `docs/210-Gateway-Provider-Operations.md`
 - `docs/200-Gateway-Metrics-And-Costs.md`
 - `docs/210-Provider-Health-And-Reset.md`
 - `docs/220-Gateway-Adapter-Boundary.md`
