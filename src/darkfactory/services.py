@@ -158,6 +158,20 @@ class AssistantService:
             )
             return
         if provider == "http_backend":
+            stream_url = derive_http_stream_url(config.api_url, config.api_stream_url)
+            if stream_url:
+                self._last_metrics.stream_mode = "stream"
+                yield from self._stream_via_http_backend(
+                    api_url=config.api_url,
+                    stream_url=stream_url,
+                    project=project,
+                    session=session,
+                    recent_messages=recent_messages,
+                    user_message=user_message,
+                    timeout=timeout,
+                    client_request_id=client_request_id,
+                )
+                return
             self._last_metrics.stream_mode = "single"
             yield self._reply_via_http(
                 api_url=config.api_url,
@@ -358,6 +372,154 @@ class AssistantService:
                 detail="HTTP assistant response did not contain 'reply'",
             )
         return reply
+
+    def _stream_via_http_backend(
+        self,
+        *,
+        api_url: str,
+        stream_url: str,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+        timeout: float,
+        client_request_id: str,
+    ) -> Iterator[str]:
+        if not api_url:
+            raise ValueError("HTTP backend provider requires api_url")
+        if not stream_url:
+            raise ValueError("HTTP backend provider requires stream_url")
+        self._last_metrics.stream_mode = "stream"
+        payload = {
+            "project": asdict(project),
+            "session": asdict(session),
+            "recent_messages": [asdict(message) for message in recent_messages],
+            "message": user_message,
+        }
+        import httpx
+
+        headers = {"X-Client-Request-Id": client_request_id} if client_request_id else {}
+        collected_parts: list[str] = []
+        stream_transport_error: AssistantServiceError | None = None
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                with client.stream("POST", stream_url, json=payload, headers=headers) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        stripped = line.strip()
+                        if not stripped.startswith("data:"):
+                            continue
+                        data_line = stripped[5:].strip()
+                        try:
+                            event = json.loads(data_line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(event, dict):
+                            continue
+                        event_type = str(event.get("type") or "").strip()
+                        if event_type == "delta":
+                            text = str(event.get("delta") or "")
+                            if text:
+                                collected_parts.append(text)
+                                yield text
+                            continue
+                        if event_type == "usage":
+                            self._apply_usage_metrics(event)
+                            continue
+                        if event_type in {"error", "provider_error"}:
+                            error_type = str(event.get("error_type") or "").strip() or "unknown"
+                            detail = str(
+                                event.get("detail")
+                                or event.get("message")
+                                or "HTTP backend stream returned an error event"
+                            ).strip()
+                            status_code = int(event.get("status_code") or 0)
+                            raise self._service_error(
+                                error_type=error_type,
+                                detail=f"HTTP backend request failed: {detail}",
+                                http_status_code=status_code,
+                                retryable=status_code >= 500,
+                            )
+                        if event_type == "done":
+                            status = str(event.get("status") or "").strip()
+                            if status == "canceled":
+                                raise self._service_error(
+                                    error_type="request_canceled",
+                                    detail="HTTP backend request was canceled before completion.",
+                                    http_status_code=499,
+                                )
+                            if collected_parts:
+                                return
+                            break
+        except httpx.ReadTimeout as exc:
+            stream_transport_error = self._service_error(
+                error_type="upstream_timeout",
+                detail=f"HTTP backend stream request failed: {exc}",
+                http_status_code=504,
+                retryable=True,
+            )
+        except (httpx.ReadError, httpx.RemoteProtocolError) as exc:
+            if collected_parts:
+                raise self._service_error(
+                    error_type="stream_interrupted",
+                    detail="HTTP backend streaming connection closed before the response completed.",
+                    http_status_code=502,
+                    retryable=True,
+                ) from exc
+            stream_transport_error = self._service_error(
+                error_type="upstream_unreachable",
+                detail=f"HTTP backend stream request failed: {exc}",
+                http_status_code=503,
+                retryable=True,
+            )
+        except httpx.HTTPStatusError as exc:
+            error_type, detail = self._extract_http_error(exc.response)
+            raise self._service_error(
+                error_type=error_type or self._classify_http_status_code(exc.response.status_code),
+                detail=f"HTTP backend stream request failed: {detail or str(exc)}",
+                http_status_code=exc.response.status_code,
+                retryable=exc.response.status_code >= 500,
+            ) from exc
+        except httpx.HTTPError as exc:
+            stream_transport_error = self._service_error(
+                error_type="upstream_unreachable",
+                detail=f"HTTP backend stream request failed: {exc}",
+                http_status_code=503,
+                retryable=True,
+            )
+
+        if collected_parts:
+            return
+
+        if stream_transport_error is not None and not self._sync_retry_policy(stream_transport_error):
+            raise stream_transport_error
+
+        try:
+            text = self._reply_via_http(
+                api_url=api_url,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+                client_request_id=client_request_id,
+            )
+        except AssistantServiceError as exc:
+            if stream_transport_error is not None:
+                raise self._service_error(
+                    error_type=exc.error_type,
+                    detail=(
+                        "HTTP backend stream ended early and the fallback sync request "
+                        f"also failed: {exc.detail}"
+                    ),
+                    http_status_code=exc.http_status_code,
+                    retryable=exc.retryable,
+                ) from exc
+            raise
+        self._last_metrics.stream_mode = "single"
+        yield text
 
     def _extract_http_error(self, response) -> tuple[str, str]:
         if response is None:

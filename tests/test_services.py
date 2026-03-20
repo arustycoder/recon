@@ -237,6 +237,154 @@ class AssistantServiceTests(unittest.TestCase):
         self.assertEqual(error.exception.error_type, "upstream_http_error")
         self.assertEqual(self.service.last_error_type(), "upstream_http_error")
 
+    def test_stream_via_http_backend_yields_gateway_deltas(self) -> None:
+        class StreamResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_lines(self):
+                yield 'data: {"type":"request","request_id":"req-1"}'
+                yield 'data: {"type":"delta","delta":"hello "}'
+                yield 'data: {"type":"delta","delta":"world"}'
+                yield (
+                    'data: {"type":"usage","prompt_tokens":3,'
+                    '"completion_tokens":2,"total_tokens":5}'
+                )
+                yield 'data: {"type":"done","status":"completed"}'
+
+        class ResponseContext:
+            def __init__(self, response) -> None:
+                self._response = response
+
+            def __enter__(self):
+                return self._response
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+        class FakeClient:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def stream(self, *args, **kwargs):
+                return ResponseContext(StreamResponse())
+
+        with patch("httpx.Client", return_value=FakeClient()):
+            chunks = list(
+                self.service._stream_via_http_backend(
+                    api_url="http://localhost:8000/api/chat",
+                    stream_url="http://localhost:8000/api/chat/stream",
+                    project=self.project,
+                    session=self.session,
+                    recent_messages=[],
+                    user_message="hello",
+                    timeout=10.0,
+                    client_request_id="req-abc",
+                )
+            )
+
+        self.assertEqual(chunks, ["hello ", "world"])
+        self.assertEqual(self.service.last_response_metrics().stream_mode, "stream")
+        self.assertEqual(self.service.last_response_metrics().total_tokens, 5)
+
+    def test_stream_via_http_backend_uses_sync_fallback_after_transport_timeout(self) -> None:
+        class ResponseContext:
+            def __enter__(self):
+                raise httpx.ReadTimeout("timed out")
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+        class FallbackResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {"reply": "fallback reply"}
+
+        class FakeClient:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def stream(self, *args, **kwargs):
+                return ResponseContext()
+
+            def post(self, *args, **kwargs):
+                return FallbackResponse()
+
+        with patch("httpx.Client", return_value=FakeClient()):
+            chunks = list(
+                self.service._stream_via_http_backend(
+                    api_url="http://localhost:8000/api/chat",
+                    stream_url="http://localhost:8000/api/chat/stream",
+                    project=self.project,
+                    session=self.session,
+                    recent_messages=[],
+                    user_message="hello",
+                    timeout=10.0,
+                    client_request_id="req-abc",
+                )
+            )
+
+        self.assertEqual(chunks, ["fallback reply"])
+        self.assertEqual(self.service.last_response_metrics().stream_mode, "single")
+
+    def test_stream_via_http_backend_surfaces_gateway_error_event(self) -> None:
+        class StreamResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_lines(self):
+                yield (
+                    'data: {"type":"error","error_type":"upstream_timeout",'
+                    '"status_code":504,"detail":"provider timed out"}'
+                )
+                yield 'data: {"type":"done","status":"error"}'
+
+        class ResponseContext:
+            def __init__(self, response) -> None:
+                self._response = response
+
+            def __enter__(self):
+                return self._response
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+        class FakeClient:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def stream(self, *args, **kwargs):
+                return ResponseContext(StreamResponse())
+
+        with patch("httpx.Client", return_value=FakeClient()):
+            with self.assertRaises(AssistantServiceError) as error:
+                list(
+                    self.service._stream_via_http_backend(
+                        api_url="http://localhost:8000/api/chat",
+                        stream_url="http://localhost:8000/api/chat/stream",
+                        project=self.project,
+                        session=self.session,
+                        recent_messages=[],
+                        user_message="hello",
+                        timeout=10.0,
+                        client_request_id="req-abc",
+                    )
+                )
+
+        self.assertEqual(error.exception.error_type, "upstream_timeout")
+        self.assertIn("provider timed out", str(error.exception))
+
     def test_fetch_gateway_providers_reads_gateway_registry(self) -> None:
         settings = ProviderSettings(
             provider="http_backend",

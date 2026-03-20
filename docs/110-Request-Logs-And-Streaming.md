@@ -55,7 +55,8 @@ Improve operator confidence and chat responsiveness by adding:
 - OpenAI-compatible and Ollama paths should prefer streaming requests when possible
 - if an OpenAI-compatible stream breaks before the first chunk, retry once with a non-stream request
 - if a stream breaks after partial output, raise a normalized provider error instead of surfacing a raw chunked-read exception
-- HTTP backend remains non-streaming in the current phase unless the custom backend already returns compatible chunks
+- HTTP backend should prefer the gateway `/api/chat/stream` SSE endpoint when available
+- if the HTTP backend stream fails before any useful output arrives, retry once with the synchronous `/api/chat` endpoint
 - mock mode may simulate a short streaming sequence for UX consistency
 
 ## Implementation Notes

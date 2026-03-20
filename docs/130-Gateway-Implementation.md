@@ -65,6 +65,12 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
   - marks the request as canceled
   - current phase is best-effort; downstream stop behavior depends on provider timing
 
+Desktop integration:
+
+- desktop `http_backend` mode should prefer `/api/chat/stream`
+- the sync `/api/chat` endpoint is now the fallback path instead of the primary path
+- this reduces local desktop timeouts when the real upstream provider is slow but the gateway can still keep the stream alive
+
 ## Implementation Notes
 
 - gateway should reuse the existing desktop-side `AssistantService` provider client paths
