@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from darkfactory.config import load_env
 
+from .errors import classify_gateway_error
 from .models import (
     GatewayCancelResponse,
     GatewayChatRequest,
@@ -18,13 +19,6 @@ from .models import (
     GatewaySkillInfo,
 )
 from .service import GatewayService
-
-
-def _gateway_error_status_code(detail: str) -> int:
-    text = detail.lower()
-    if "429" in text or "too many requests" in text or "rate limit" in text:
-        return 429
-    return 502
 
 
 def create_app(service: GatewayService | None = None) -> FastAPI:
@@ -96,10 +90,14 @@ def create_app(service: GatewayService | None = None) -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(
-                status_code=_gateway_error_status_code(str(exc)),
-                detail=str(exc),
-            ) from exc
+            error = classify_gateway_error(str(exc))
+            return JSONResponse(
+                status_code=error.http_status_code,
+                content={
+                    "detail": error.detail,
+                    "error_type": error.error_type,
+                },
+            )
 
     @app.post("/api/chat/stream")
     def stream(request: GatewayChatRequest) -> StreamingResponse:

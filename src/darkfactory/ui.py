@@ -69,6 +69,7 @@ class WorkerResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    error_type: str = ""
     content: str = ""
     error: str = ""
 
@@ -134,6 +135,7 @@ class AssistantWorker(QThread):
                     prompt_tokens=metrics.prompt_tokens,
                     completion_tokens=metrics.completion_tokens,
                     total_tokens=metrics.total_tokens,
+                    error_type=self._service.last_error_type(),
                     error=str(exc),
                 )
             )
@@ -472,6 +474,7 @@ class RequestLogDialog(QDialog):
                 "Provider",
                 "目标",
                 "状态",
+                "错误类型",
                 "模式",
                 "首字延迟",
                 "总耗时",
@@ -539,6 +542,7 @@ class RequestLogDialog(QDialog):
                     entry.provider,
                     entry.model,
                     entry.status,
+                    entry.error_type or "-",
                     entry.stream_mode or "-",
                     str(entry.first_token_latency_ms),
                     str(entry.latency_ms),
@@ -1433,6 +1437,7 @@ class MainWindow(QMainWindow):
                 provider=context.provider,
                 model=context.target,
                 status="canceled",
+                error_type="canceled",
                 stream_mode="canceled",
                 latency_ms=elapsed_ms,
                 first_token_latency_ms=context.first_token_latency_ms,
@@ -1465,6 +1470,7 @@ class MainWindow(QMainWindow):
             provider=result.provider,
             model=result.target,
             status="success",
+            error_type="",
             stream_mode=result.stream_mode,
             latency_ms=result.latency_ms,
             first_token_latency_ms=result.first_token_latency_ms,
@@ -1490,6 +1496,7 @@ class MainWindow(QMainWindow):
             provider=result.provider,
             model=result.target,
             status="error",
+            error_type=result.error_type,
             stream_mode=result.stream_mode,
             latency_ms=result.latency_ms,
             first_token_latency_ms=result.first_token_latency_ms,

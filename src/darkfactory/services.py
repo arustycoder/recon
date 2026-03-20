@@ -21,6 +21,7 @@ class AssistantService:
     def __init__(self, settings: ProviderSettings | None = None) -> None:
         self._settings = settings
         self._last_metrics = ResponseMetrics()
+        self._last_error_type = ""
 
     def update_settings(self, settings: ProviderSettings) -> None:
         self._settings = settings
@@ -30,6 +31,9 @@ class AssistantService:
 
     def last_response_metrics(self) -> ResponseMetrics:
         return self._last_metrics
+
+    def last_error_type(self) -> str:
+        return self._last_error_type
 
     def provider_name(self, settings: ProviderSettings | None = None) -> str:
         config = settings or self.current_settings()
@@ -107,6 +111,7 @@ class AssistantService:
         provider = self.provider_name(config)
         timeout = float(self.request_timeout_seconds(config))
         self._last_metrics = ResponseMetrics()
+        self._last_error_type = ""
         if provider == "ollama":
             self._last_metrics.stream_mode = "stream"
             yield from self._stream_via_openai_compatible(
@@ -314,37 +319,47 @@ class AssistantService:
                 response = client.post(api_url, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            detail = self._extract_http_error_detail(exc.response)
+            error_type, detail = self._extract_http_error(exc.response)
+            self._last_error_type = error_type
             raise RuntimeError(
                 f"HTTP backend request failed: {detail or str(exc)}"
             ) from exc
         except httpx.HTTPError as exc:
+            self._last_error_type = "upstream_unreachable"
             raise RuntimeError(f"HTTP backend request failed: {exc}") from exc
         data = response.json()
         self._apply_usage_metrics(data.get("usage") or {})
         reply = data.get("reply", "").strip()
         if not reply:
+            self._last_error_type = "empty_response"
             raise ValueError("HTTP assistant response did not contain 'reply'")
         return reply
 
-    def _extract_http_error_detail(self, response) -> str:
+    def _extract_http_error(self, response) -> tuple[str, str]:
         if response is None:
-            return ""
+            return "", ""
         try:
             data = response.json()
         except Exception:
             data = None
         if isinstance(data, dict):
             detail = data.get("detail")
+            if isinstance(detail, dict):
+                error_type = str(detail.get("error_type") or "").strip()
+                message = str(detail.get("message") or detail.get("detail") or "").strip()
+                if message:
+                    return error_type, message
             if isinstance(detail, str) and detail.strip():
-                return detail.strip()
+                error_type = str(data.get("error_type") or "").strip()
+                return error_type, detail.strip()
             error = data.get("error")
             if isinstance(error, str) and error.strip():
-                return error.strip()
+                error_type = str(data.get("error_type") or "").strip()
+                return error_type, error.strip()
         text = getattr(response, "text", "")
         if isinstance(text, str) and text.strip():
-            return text.strip()
-        return ""
+            return "", text.strip()
+        return "", ""
 
     def _is_partial_stream_disconnect_detail(self, detail: str) -> bool:
         text = detail.lower()

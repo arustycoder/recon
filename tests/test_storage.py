@@ -83,6 +83,7 @@ class StorageTests(unittest.TestCase):
                 provider="mock",
                 model="mock",
                 status="success",
+                error_type="",
                 stream_mode="stream",
                 latency_ms=120,
                 first_token_latency_ms=40,
@@ -96,6 +97,7 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(len(logs), 1)
             self.assertEqual(logs[0].session_id, session_id)
             self.assertEqual(logs[0].status, "success")
+            self.assertEqual(logs[0].error_type, "")
             self.assertEqual(logs[0].stream_mode, "stream")
             self.assertEqual(logs[0].total_tokens, 36)
 
@@ -111,6 +113,7 @@ class StorageTests(unittest.TestCase):
                 provider="mock",
                 model="mock",
                 status="success",
+                error_type="",
                 latency_ms=10,
             )
             storage.add_request_log(
@@ -118,6 +121,7 @@ class StorageTests(unittest.TestCase):
                 provider="openai_compatible",
                 model="demo",
                 status="error",
+                error_type="rate_limited",
                 latency_ms=20,
             )
 
@@ -128,6 +132,7 @@ class StorageTests(unittest.TestCase):
             logs = storage.list_request_logs()
             self.assertEqual(len(logs), 1)
             self.assertEqual(logs[0].provider, "openai_compatible")
+            self.assertEqual(logs[0].error_type, "rate_limited")
 
     def test_gateway_request_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -153,6 +158,7 @@ class StorageTests(unittest.TestCase):
                 estimated_cost_usd=0.0123,
                 attempted_provider_ids=["mock"],
                 skill_ids=["structured_output"],
+                error_type="",
                 error_detail="",
             )
             storage.save_gateway_request(
@@ -172,6 +178,7 @@ class StorageTests(unittest.TestCase):
                 estimated_cost_usd=0.0123,
                 attempted_provider_ids=["mock"],
                 skill_ids=["structured_output"],
+                error_type="",
                 error_detail="",
             )
 
@@ -183,6 +190,7 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(record.phase, "completed")
             self.assertEqual(record.latency_ms, 120)
             self.assertEqual(record.total_tokens, 90)
+            self.assertEqual(record.error_type, "")
             self.assertEqual(len(records), 1)
 
     def test_gateway_request_filters(self) -> None:
@@ -204,12 +212,14 @@ class StorageTests(unittest.TestCase):
                 status="error",
                 phase="error",
                 provider_id="openai",
+                error_type="rate_limited",
                 total_tokens=20,
             )
 
             self.assertEqual(len(storage.filter_gateway_requests(provider_id="mock")), 1)
             self.assertEqual(len(storage.filter_gateway_requests(status="error")), 1)
             self.assertEqual(len(storage.filter_gateway_requests(phase="completed")), 1)
+            self.assertEqual(storage.get_gateway_request("req_b").error_type, "rate_limited")
 
 
 if __name__ == "__main__":

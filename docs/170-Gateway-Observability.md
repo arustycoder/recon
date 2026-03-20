@@ -54,6 +54,7 @@ Tracked fields:
 - `estimated_cost_usd`
 - `attempted_provider_ids`
 - `skill_ids`
+- `error_type`
 - `error_detail`
 - `created_at`
 - `updated_at`
@@ -67,10 +68,12 @@ Summary fields:
 - total estimated cost
 - grouped metrics by provider
 - grouped metrics by status
+- grouped metrics by normalized error type
 
 ## Implementation Notes
 
 - active request state is mirrored into the shared SQLite store so the gateway can be inspected after a process restart
 - gateway request ids are also suitable for downstream `X-Client-Request-Id` propagation when the target provider supports correlation headers
+- normalized `error_type` is intended to be the operator-facing grouping key; `error_detail` remains the raw explanatory text
 - this is enough for local debugging and integration testing, but not enough for production audit or analytics
 - later phases should add metrics export, retention policy, and gateway-side token/cost aggregation

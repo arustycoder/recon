@@ -34,6 +34,7 @@ Improve operator confidence and chat responsiveness by adding:
   - provider
   - model or endpoint
   - status
+  - normalized error type when available
   - latency
   - detail
 - optimized for quick troubleshooting instead of full reporting
@@ -63,4 +64,5 @@ Improve operator confidence and chat responsiveness by adding:
 - treat streamed content as transient until the request completes successfully
 - write one final request log record per completed, errored, or canceled request
 - when token usage is reported by the provider, persist it alongside the request log
+- when the gateway returns a normalized `error_type`, persist it alongside the desktop-side request log
 - avoid leaking low-level transport errors such as incomplete chunked reads directly into the user-facing UI

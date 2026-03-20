@@ -80,6 +80,7 @@ class Storage:
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
+                    error_type TEXT NOT NULL DEFAULT '',
                     stream_mode TEXT NOT NULL DEFAULT '',
                     latency_ms INTEGER NOT NULL DEFAULT 0,
                     first_token_latency_ms INTEGER NOT NULL DEFAULT 0,
@@ -108,6 +109,7 @@ class Storage:
                     estimated_cost_usd REAL NOT NULL DEFAULT 0,
                     attempted_provider_ids TEXT NOT NULL DEFAULT '[]',
                     skill_ids TEXT NOT NULL DEFAULT '[]',
+                    error_type TEXT NOT NULL DEFAULT '',
                     error_detail TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -124,6 +126,7 @@ class Storage:
             for row in connection.execute("PRAGMA table_info(request_logs)").fetchall()
         }
         required_columns = {
+            "error_type": "TEXT NOT NULL DEFAULT ''",
             "stream_mode": "TEXT NOT NULL DEFAULT ''",
             "first_token_latency_ms": "INTEGER NOT NULL DEFAULT 0",
             "prompt_tokens": "INTEGER NOT NULL DEFAULT 0",
@@ -149,6 +152,7 @@ class Storage:
             "completion_tokens": "INTEGER NOT NULL DEFAULT 0",
             "total_tokens": "INTEGER NOT NULL DEFAULT 0",
             "estimated_cost_usd": "REAL NOT NULL DEFAULT 0",
+            "error_type": "TEXT NOT NULL DEFAULT ''",
         }
         for name, spec in required_columns.items():
             if name in existing:
@@ -409,6 +413,7 @@ class Storage:
         provider: str,
         model: str,
         status: str,
+        error_type: str = "",
         stream_mode: str = "",
         latency_ms: int,
         first_token_latency_ms: int = 0,
@@ -425,6 +430,7 @@ class Storage:
                     provider,
                     model,
                     status,
+                    error_type,
                     stream_mode,
                     latency_ms,
                     first_token_latency_ms,
@@ -433,13 +439,14 @@ class Storage:
                     total_tokens,
                     detail
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     provider,
                     model,
                     status,
+                    error_type,
                     stream_mode,
                     latency_ms,
                     first_token_latency_ms,
@@ -481,6 +488,7 @@ class Storage:
                     provider,
                     model,
                     status,
+                    error_type,
                     stream_mode,
                     latency_ms,
                     first_token_latency_ms,
@@ -533,6 +541,7 @@ class Storage:
         estimated_cost_usd: float = 0.0,
         attempted_provider_ids: list[str] | None = None,
         skill_ids: list[str] | None = None,
+        error_type: str = "",
         error_detail: str = "",
     ) -> None:
         with self.connect() as connection:
@@ -555,9 +564,10 @@ class Storage:
                     estimated_cost_usd,
                     attempted_provider_ids,
                     skill_ids,
+                    error_type,
                     error_detail
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(request_id) DO UPDATE SET
                     client_request_id = excluded.client_request_id,
                     session_id = excluded.session_id,
@@ -574,6 +584,7 @@ class Storage:
                     estimated_cost_usd = excluded.estimated_cost_usd,
                     attempted_provider_ids = excluded.attempted_provider_ids,
                     skill_ids = excluded.skill_ids,
+                    error_type = excluded.error_type,
                     error_detail = excluded.error_detail,
                     updated_at = CURRENT_TIMESTAMP
                 """,
@@ -594,6 +605,7 @@ class Storage:
                     estimated_cost_usd,
                     json.dumps(attempted_provider_ids or [], ensure_ascii=False),
                     json.dumps(skill_ids or [], ensure_ascii=False),
+                    error_type,
                     error_detail,
                 ),
             )
@@ -650,6 +662,7 @@ class Storage:
                     estimated_cost_usd,
                     attempted_provider_ids,
                     skill_ids,
+                    error_type,
                     error_detail,
                     created_at,
                     updated_at
@@ -683,6 +696,7 @@ class Storage:
                     estimated_cost_usd,
                     attempted_provider_ids,
                     skill_ids,
+                    error_type,
                     error_detail,
                     created_at,
                     updated_at

@@ -213,7 +213,7 @@ class AssistantServiceTests(unittest.TestCase):
         response = httpx.Response(
             502,
             request=request,
-            json={"detail": "upstream provider returned 404"},
+            json={"detail": "upstream provider returned 404", "error_type": "upstream_http_error"},
         )
         client = Mock()
         client.post.return_value = response
@@ -234,6 +234,7 @@ class AssistantServiceTests(unittest.TestCase):
                 )
 
         self.assertIn("upstream provider returned 404", str(error.exception))
+        self.assertEqual(self.service.last_error_type(), "upstream_http_error")
 
     def test_fetch_gateway_providers_reads_gateway_registry(self) -> None:
         settings = ProviderSettings(

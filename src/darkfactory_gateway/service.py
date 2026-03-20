@@ -11,6 +11,7 @@ from darkfactory.models import Message, Project, ResponseMetrics, Session
 from darkfactory.storage import Storage
 
 from .adapters import GatewayAdapterFactory, GatewayProviderAdapter
+from .errors import GatewayErrorInfo, classify_gateway_error
 from .models import (
     GatewayChatRequest,
     GatewayChatResponse,
@@ -43,6 +44,7 @@ class RequestState:
     estimated_cost_usd: float = 0.0
     attempted_provider_ids: list[str] | None = None
     skill_ids: list[str] | None = None
+    error_type: str = ""
     error_detail: str = ""
     created_at: str = ""
     updated_at: str = ""
@@ -65,6 +67,7 @@ class RequestState:
             "estimated_cost_usd": self.estimated_cost_usd,
             "attempted_provider_ids": list(self.attempted_provider_ids or []),
             "skill_ids": list(self.skill_ids or []),
+            "error_type": self.error_type,
             "error_detail": self.error_detail,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -76,6 +79,8 @@ class ProviderCircuitState:
     consecutive_failures: int = 0
     cooldown_until: float = 0.0
     reason: str = ""
+    last_error_type: str = ""
+    last_error_detail: str = ""
 
 
 class RequestTracker:
@@ -166,14 +171,15 @@ class RequestTracker:
         *,
         provider_id: str,
         attempted_provider_ids: list[str],
-        detail: str,
+        error: GatewayErrorInfo,
     ) -> None:
         state = self._states.get(request_id)
         if state is None:
             return
         state.provider_id = provider_id
         state.attempted_provider_ids = list(attempted_provider_ids)
-        state.error_detail = detail
+        state.error_type = error.error_type
+        state.error_detail = error.detail
         state.status = "error"
         state.phase = "error"
         state.updated_at = self._timestamp()
@@ -299,6 +305,7 @@ class GatewayService:
             estimated_cost_usd=round(sum(item.estimated_cost_usd for item in records), 6),
             by_provider=self._summarize_groups(records, "provider_id"),
             by_status=self._summarize_groups(records, "status"),
+            by_error_type=self._summarize_groups(records, "error_type"),
         )
 
     def get_request(self, request_id: str) -> GatewayRequestInfo | None:
@@ -312,52 +319,53 @@ class GatewayService:
         circuit = self._provider_circuits.get(provider.id, ProviderCircuitState())
         remaining = self._provider_cooldown_remaining(provider.id)
         if not provider.enabled:
+            error = classify_gateway_error("Provider is disabled in registry")
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
-                status="disabled",
-                detail="Provider is disabled in registry",
+                status=error.provider_health_status,
+                detail=error.detail,
                 consecutive_failures=circuit.consecutive_failures,
                 cooldown_remaining_seconds=0,
+                last_error_type=circuit.last_error_type or error.error_type,
+                last_error_detail=circuit.last_error_detail or error.detail,
             )
         if remaining > 0:
-            status = "rate_limited" if circuit.reason == "rate_limited" else "cooldown"
-            detail = (
-                f"Provider is rate limited and cooling down for {remaining}s"
-                if status == "rate_limited"
-                else (
-                    f"Provider stream was interrupted and is cooling down for {remaining}s"
-                    if circuit.reason == "stream_unstable"
-                    else f"Provider is cooling down for {remaining}s"
-                )
-            )
+            error = self._cooldown_error(circuit, remaining)
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
-                status=status,
-                detail=detail,
+                status=error.provider_health_status,
+                detail=error.detail,
                 consecutive_failures=circuit.consecutive_failures,
                 cooldown_remaining_seconds=remaining,
+                last_error_type=circuit.last_error_type,
+                last_error_detail=circuit.last_error_detail,
             )
         misconfigured = self._provider_misconfiguration(provider)
         if misconfigured:
+            error = classify_gateway_error(misconfigured)
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
-                status="misconfigured",
-                detail=misconfigured,
+                status=error.provider_health_status,
+                detail=error.detail,
                 consecutive_failures=circuit.consecutive_failures,
                 cooldown_remaining_seconds=0,
+                last_error_type=error.error_type,
+                last_error_detail=error.detail,
             )
 
         adapter = self.adapter_factory.create(provider.settings)
         try:
             detail = adapter.health_check()
         except Exception as exc:
-            status = self._classify_provider_exception(exc)
+            error = classify_gateway_error(str(exc))
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
-                status=status,
-                detail=str(exc),
+                status=error.provider_health_status,
+                detail=error.detail,
                 consecutive_failures=circuit.consecutive_failures,
                 cooldown_remaining_seconds=0,
+                last_error_type=error.error_type,
+                last_error_detail=error.detail,
             )
         status = "degraded" if circuit.consecutive_failures > 0 else "healthy"
         return GatewayProviderHealthResponse(
@@ -366,6 +374,8 @@ class GatewayService:
             detail=detail,
             consecutive_failures=circuit.consecutive_failures,
             cooldown_remaining_seconds=0,
+            last_error_type=circuit.last_error_type,
+            last_error_detail=circuit.last_error_detail,
         )
 
     def reset_provider(self, provider_id: str) -> GatewayProviderResetResponse:
@@ -406,38 +416,30 @@ class GatewayService:
                 )
                 self._persist_request_state(request_id)
                 if not provider.enabled:
-                    detail = "Provider is disabled in registry"
+                    error = classify_gateway_error("Provider is disabled in registry")
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
                         attempted_provider_ids=attempted_provider_ids,
-                        detail=detail,
+                        error=error,
                     )
                     self._persist_request_state(request_id)
-                    last_error = RuntimeError(detail)
+                    last_error = RuntimeError(error.detail)
                     if request.provider_strategy != "fallback":
                         raise last_error
                     continue
                 cooldown_remaining = self._provider_cooldown_remaining(provider.id)
                 if cooldown_remaining > 0:
                     circuit = self._provider_circuits.get(provider.id, ProviderCircuitState())
-                    detail = (
-                        f"Provider is rate limited and cooling down for {cooldown_remaining}s"
-                        if circuit.reason == "rate_limited"
-                        else (
-                            f"Provider stream was interrupted and is cooling down for {cooldown_remaining}s"
-                            if circuit.reason == "stream_unstable"
-                            else f"Provider is cooling down for {cooldown_remaining}s"
-                        )
-                    )
+                    error = self._cooldown_error(circuit, cooldown_remaining)
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
                         attempted_provider_ids=attempted_provider_ids,
-                        detail=detail,
+                        error=error,
                     )
                     self._persist_request_state(request_id)
-                    last_error = RuntimeError(detail)
+                    last_error = RuntimeError(error.detail)
                     if request.provider_strategy != "fallback":
                         raise last_error
                     continue
@@ -486,16 +488,17 @@ class GatewayService:
                     break
                 except Exception as exc:
                     last_error = exc
-                    self._record_provider_failure(provider.id, provider, str(exc))
+                    error = classify_gateway_error(str(exc))
+                    self._record_provider_failure(provider.id, provider, error)
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
                         attempted_provider_ids=attempted_provider_ids,
-                        detail=str(exc),
+                        error=error,
                     )
                     self._persist_request_state(request_id)
                     if request.provider_strategy != "fallback":
-                        raise
+                        raise RuntimeError(error.detail) from exc
 
             if final_provider is None or adapter is None:
                 raise RuntimeError(str(last_error) if last_error else "No provider resolved")
@@ -548,12 +551,12 @@ class GatewayService:
                 )
                 self._persist_request_state(request_id)
                 if not provider.enabled:
-                    detail = "Provider is disabled in registry"
+                    error = classify_gateway_error("Provider is disabled in registry")
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
                         attempted_provider_ids=attempted_provider_ids,
-                        detail=detail,
+                        error=error,
                     )
                     self._persist_request_state(request_id)
                     if request.provider_strategy != "fallback":
@@ -562,7 +565,7 @@ class GatewayService:
                             client_request_id=request.client_request_id,
                             provider_id=provider.id,
                             attempted_provider_ids=attempted_provider_ids,
-                            detail=detail,
+                            error=error,
                         )
                         return
                     yield self._sse(
@@ -570,27 +573,21 @@ class GatewayService:
                             "type": "provider_error",
                             "request_id": request_id,
                             "provider_id": provider.id,
-                            "detail": detail,
+                            "error_type": error.error_type,
+                            "status_code": error.http_status_code,
+                            "detail": error.detail,
                         }
                     )
                     continue
                 cooldown_remaining = self._provider_cooldown_remaining(provider.id)
                 if cooldown_remaining > 0:
                     circuit = self._provider_circuits.get(provider.id, ProviderCircuitState())
-                    detail = (
-                        f"Provider is rate limited and cooling down for {cooldown_remaining}s"
-                        if circuit.reason == "rate_limited"
-                        else (
-                            f"Provider stream was interrupted and is cooling down for {cooldown_remaining}s"
-                            if circuit.reason == "stream_unstable"
-                            else f"Provider is cooling down for {cooldown_remaining}s"
-                        )
-                    )
+                    error = self._cooldown_error(circuit, cooldown_remaining)
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
                         attempted_provider_ids=attempted_provider_ids,
-                        detail=detail,
+                        error=error,
                     )
                     self._persist_request_state(request_id)
                     if request.provider_strategy != "fallback":
@@ -599,7 +596,7 @@ class GatewayService:
                             client_request_id=request.client_request_id,
                             provider_id=provider.id,
                             attempted_provider_ids=attempted_provider_ids,
-                            detail=detail,
+                            error=error,
                         )
                         return
                     yield self._sse(
@@ -607,7 +604,9 @@ class GatewayService:
                             "type": "provider_error",
                             "request_id": request_id,
                             "provider_id": provider.id,
-                            "detail": detail,
+                            "error_type": error.error_type,
+                            "status_code": error.http_status_code,
+                            "detail": error.detail,
                         }
                     )
                     continue
@@ -703,12 +702,13 @@ class GatewayService:
                     self._persist_request_state(request_id)
                     return
                 except Exception as exc:
-                    self._record_provider_failure(provider.id, provider, str(exc))
+                    error = classify_gateway_error(str(exc))
+                    self._record_provider_failure(provider.id, provider, error)
                     self.request_tracker.mark_error(
                         request_id,
                         provider_id=provider.id,
                         attempted_provider_ids=attempted_provider_ids,
-                        detail=str(exc),
+                        error=error,
                     )
                     self._persist_request_state(request_id)
                     if request.provider_strategy != "fallback":
@@ -717,7 +717,7 @@ class GatewayService:
                             client_request_id=request.client_request_id,
                             provider_id=provider.id,
                             attempted_provider_ids=attempted_provider_ids,
-                            detail=str(exc),
+                            error=error,
                         )
                         return
                     yield self._sse(
@@ -725,7 +725,9 @@ class GatewayService:
                             "type": "provider_error",
                             "request_id": request_id,
                             "provider_id": provider.id,
-                            "detail": str(exc),
+                            "error_type": error.error_type,
+                            "status_code": error.http_status_code,
+                            "detail": error.detail,
                         }
                     )
             yield from self._stream_terminal_error(
@@ -733,7 +735,9 @@ class GatewayService:
                 client_request_id=request.client_request_id,
                 provider_id="",
                 attempted_provider_ids=attempted_provider_ids,
-                detail="All configured providers failed for the request",
+                error=classify_gateway_error(
+                    "All configured providers failed for the request"
+                ),
             )
             return
         finally:
@@ -856,6 +860,7 @@ class GatewayService:
             estimated_cost_usd=state.estimated_cost_usd,
             attempted_provider_ids=list(state.attempted_provider_ids or []),
             skill_ids=list(state.skill_ids or []),
+            error_type=state.error_type,
             error_detail=state.error_detail,
         )
 
@@ -876,6 +881,7 @@ class GatewayService:
             estimated_cost_usd=record.estimated_cost_usd,
             attempted_provider_ids=json.loads(record.attempted_provider_ids or "[]"),
             skill_ids=json.loads(record.skill_ids or "[]"),
+            error_type=record.error_type,
             error_detail=record.error_detail,
             created_at=record.created_at,
             updated_at=record.updated_at,
@@ -900,14 +906,16 @@ class GatewayService:
         self,
         provider_id: str,
         provider: ProviderRecord,
-        detail: str = "",
+        error: GatewayErrorInfo,
     ) -> None:
         state = self._provider_circuits.get(provider_id, ProviderCircuitState())
         state.consecutive_failures += 1
-        if self._is_rate_limit_detail(detail):
+        state.last_error_type = error.error_type
+        state.last_error_detail = error.detail
+        if error.cooldown_reason == "rate_limited":
             state.cooldown_until = time.time() + provider.cooldown_seconds
             state.reason = "rate_limited"
-        elif self._is_partial_stream_disconnect_detail(detail):
+        elif error.cooldown_reason == "stream_unstable":
             state.cooldown_until = time.time() + max(5, min(10, provider.cooldown_seconds))
             state.reason = "stream_unstable"
         elif state.consecutive_failures >= provider.max_consecutive_failures:
@@ -939,21 +947,22 @@ class GatewayService:
             return ""
         return ""
 
-    def _classify_provider_exception(self, exc: Exception) -> str:
-        text = str(exc).lower()
-        if self._is_rate_limit_detail(text):
-            return "rate_limited"
-        if any(token in text for token in ("connect", "timeout", "dns", "network", "refused")):
-            return "unreachable"
-        return "degraded"
-
-    def _is_rate_limit_detail(self, detail: str) -> bool:
-        text = detail.lower()
-        return "429" in text or "too many requests" in text or "rate limit" in text
-
-    def _is_partial_stream_disconnect_detail(self, detail: str) -> bool:
-        text = detail.lower()
-        return "streaming connection closed before the response completed" in text
+    def _cooldown_error(
+        self,
+        circuit: ProviderCircuitState,
+        cooldown_remaining: int,
+    ) -> GatewayErrorInfo:
+        if circuit.reason == "rate_limited":
+            return classify_gateway_error(
+                f"Provider is rate limited and cooling down for {cooldown_remaining}s"
+            )
+        if circuit.reason == "stream_unstable":
+            return classify_gateway_error(
+                f"Provider stream was interrupted and is cooling down for {cooldown_remaining}s"
+            )
+        return classify_gateway_error(
+            f"Provider is cooling down for {cooldown_remaining}s"
+        )
 
     def _estimate_cost_usd(self, provider: ProviderRecord, metrics: ResponseMetrics) -> float:
         prompt_cost = (
@@ -975,7 +984,9 @@ class GatewayService:
     ) -> list[GatewayRequestSummaryGroup]:
         grouped: dict[str, list] = {}
         for record in records:
-            key = getattr(record, field_name) or "unknown"
+            key = getattr(record, field_name)
+            if not key:
+                key = "none" if field_name == "error_type" else "unknown"
             grouped.setdefault(key, []).append(record)
         rows: list[GatewayRequestSummaryGroup] = []
         for key in sorted(grouped):
@@ -1016,7 +1027,7 @@ class GatewayService:
         client_request_id: str,
         provider_id: str,
         attempted_provider_ids: list[str],
-        detail: str,
+        error: GatewayErrorInfo,
     ) -> Iterator[str]:
         yield self._sse(
             {
@@ -1025,7 +1036,9 @@ class GatewayService:
                 "client_request_id": client_request_id,
                 "provider_id": provider_id,
                 "attempted_provider_ids": attempted_provider_ids,
-                "detail": detail,
+                "error_type": error.error_type,
+                "status_code": error.http_status_code,
+                "detail": error.detail,
                 "status": "error",
             }
         )
@@ -1036,6 +1049,7 @@ class GatewayService:
                 "client_request_id": client_request_id,
                 "provider_id": provider_id,
                 "attempted_provider_ids": attempted_provider_ids,
+                "error_type": error.error_type,
                 "status": "error",
             }
         )

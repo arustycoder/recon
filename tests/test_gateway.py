@@ -25,6 +25,7 @@ from darkfactory_gateway.adapters import (
     OpenAICompatibleGatewayAdapter,
 )
 from darkfactory_gateway.app import create_app
+from darkfactory_gateway.errors import classify_gateway_error
 from darkfactory_gateway.models import GatewayChatRequest
 from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
 from darkfactory_gateway.service import GatewayService
@@ -200,6 +201,7 @@ class GatewayAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["detail"], "sync provider failed")
+        self.assertEqual(response.json()["error_type"], "unknown")
 
     def test_sync_chat_uses_adapter_reply_path(self) -> None:
         registry = ProviderRegistry(
@@ -261,9 +263,11 @@ class GatewayAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 429)
         self.assertIn("429 Too Many Requests", response.json()["detail"])
+        self.assertEqual(response.json()["error_type"], "rate_limited")
         health = service.provider_health("limited")
         self.assertEqual(health.status, "rate_limited")
         self.assertIn("rate limited", health.detail)
+        self.assertEqual(health.last_error_type, "rate_limited")
 
     def test_stream_returns_sse_events(self) -> None:
         with self.client.stream("POST", "/api/chat/stream", json=sample_request()) as response:
@@ -310,6 +314,8 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('"type": "request"', content)
         self.assertIn('"type": "error"', content)
+        self.assertIn('"error_type": "unknown"', content)
+        self.assertIn('"status_code": 502', content)
         self.assertIn('"type": "done"', content)
         self.assertIn('"status": "error"', content)
         self.assertIn("stream provider failed", content)
@@ -357,6 +363,7 @@ class GatewayAppTests(unittest.TestCase):
         self.assertGreaterEqual(summary.json()["request_count"], 2)
         self.assertEqual(summary.json()["error_count"], 0)
         self.assertTrue(any(item["key"] == "mock" for item in summary.json()["by_provider"]))
+        self.assertTrue(any(item["key"] == "none" for item in summary.json()["by_error_type"]))
 
     def test_cancel_endpoint_marks_request(self) -> None:
         request_id = self.service.request_tracker.create()
@@ -526,7 +533,11 @@ class GatewayAppTests(unittest.TestCase):
             provider_registry=registry,
             storage=Storage(db_path=Path(self.temp_dir.name) / "reset.db"),
         )
-        service._record_provider_failure("fragile", registry.get("fragile"))
+        service._record_provider_failure(
+            "fragile",
+            registry.get("fragile"),
+            classify_gateway_error("provider failed"),
+        )
 
         before = service.provider_health("fragile")
         reset = service.reset_provider("fragile")
@@ -580,6 +591,7 @@ class GatewayAppTests(unittest.TestCase):
         health = service.provider_health("limited")
         self.assertEqual(health.status, "rate_limited")
         self.assertIn("rate limited", health.detail)
+        self.assertEqual(health.last_error_type, "rate_limited")
 
     def test_stream_disconnect_enters_short_cooldown(self) -> None:
         registry = ProviderRegistry(
@@ -613,7 +625,42 @@ class GatewayAppTests(unittest.TestCase):
         health = service.provider_health("unstable")
         self.assertEqual(health.status, "cooldown")
         self.assertIn("stream was interrupted", health.detail)
+        self.assertEqual(health.last_error_type, "stream_interrupted")
         self.assertGreater(health.cooldown_remaining_seconds, 0)
+
+    def test_request_summary_groups_errors_by_error_type(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="limited",
+                    kind="openai_compatible",
+                    label="Limited",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://limited.invalid/v1",
+                        openai_model="limited-model",
+                    ),
+                    default=True,
+                    priority=1,
+                    cooldown_seconds=60,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "summary-errors.db"),
+            adapter_factory=MappingAdapterFactory(
+                {"openai_compatible": RaisingAdapter(error_text="429 Too Many Requests")}
+            ),
+        )
+
+        with self.assertRaises(RuntimeError):
+            service.chat(service_request(provider_id="limited", provider_strategy="default"))
+
+        summary = service.request_summary(provider_id="limited")
+
+        self.assertEqual(summary.error_count, 1)
+        self.assertTrue(any(item.key == "rate_limited" for item in summary.by_error_type))
 
     def test_provider_health_reports_misconfigured(self) -> None:
         registry = ProviderRegistry(

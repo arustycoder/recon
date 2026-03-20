@@ -55,6 +55,7 @@ class RequestLog:
     provider: str
     model: str
     status: str
+    error_type: str
     stream_mode: str
     latency_ms: int
     first_token_latency_ms: int
@@ -83,6 +84,7 @@ class GatewayRequestRecord:
     estimated_cost_usd: float
     attempted_provider_ids: str
     skill_ids: str
+    error_type: str
     error_detail: str
     created_at: str
     updated_at: str

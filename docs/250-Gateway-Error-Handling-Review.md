@@ -11,6 +11,9 @@ Summarize the current gateway error-handling model, identify where it is working
 - `POST /api/chat/stream` no longer tears down the response with a broken chunked body when upstream streaming fails
 - `POST /api/chat` no longer leaks a generic internal server error for common upstream provider failures
 - upstream `429` is treated as a first-class rate-limit signal
+- synchronous chat now has one explicit recovery path for a mid-stream disconnect:
+  - if the stream already began and then breaks
+  - the gateway can retry once with a non-stream completion request
 - provider health can now distinguish:
   - `healthy`
   - `degraded`
@@ -43,9 +46,9 @@ Summarize the current gateway error-handling model, identify where it is working
 
 ### What is still weak
 
-- the gateway still relies heavily on string-based error classification
-- sync and stream paths are closer now, but they are not fully symmetric
-- the provider client is still optimized around OpenAI-compatible behavior and does not yet expose a formal internal error type
+- the gateway now has an internal error classifier, but most adapters still feed it plain detail text instead of typed exceptions
+- sync and stream paths now share error categories, but recovery policy is still partially distributed across adapters and service code
+- the provider client is still optimized around OpenAI-compatible behavior
 - some upstream failures still mix two concerns:
   - transport behavior
   - provider semantics
@@ -64,6 +67,7 @@ Summarize the current gateway error-handling model, identify where it is working
 - stream interruption after partial output
   - normalized into a provider error
   - can trigger a non-stream retry in sync chat
+  - if recovery still fails, provider enters a short cooldown window
 - connectivity and timeout failures
   - generally classified as `unreachable`
 
@@ -136,7 +140,7 @@ DarkFactory has started this path, but still sits in an embedded, product-first 
 
 ### Priority 1
 
-- introduce an internal gateway error classifier object instead of relying only on free-form strings
+- keep extending the internal gateway error classifier instead of adding new string checks in ad-hoc call sites
 - normalize at least these categories:
   - `rate_limited`
   - `upstream_http_error`
@@ -149,6 +153,10 @@ DarkFactory has started this path, but still sits in an embedded, product-first 
 
 - centralize retry policy so sync and stream paths consult the same recovery rules
 - document exactly which categories are retried, which enter cooldown, and which fail fast
+- tighten the distinction between:
+  - retryable stream interruption
+  - non-retryable upstream HTTP error
+  - retryable timeout before any tokens
 
 ### Priority 3
 
@@ -174,3 +182,33 @@ It is:
 - a cleaner internal error taxonomy
 - stronger sync/stream parity
 - more explicit operator-facing semantics
+
+Update:
+
+- `docs/260-Gateway-Error-Classification.md` now defines the first classifier-backed version of that taxonomy
+
+## Second Reflection
+
+### Problems materially reduced in this pass
+
+- sync chat and stream chat now speak in the same error vocabulary instead of two unrelated shapes
+- provider health is no longer just “healthy or not”; operators can now see the last classified failure
+- request analytics can now answer “what kind of failure is happening” without parsing free-form detail
+- desktop-side request logs can now preserve gateway `error_type` as well as text detail
+
+### Problems not actually solved yet
+
+- adapters still raise generic exceptions; the classifier still has to infer intent from detail text
+- there is still no single policy table that says:
+  - which error types retry
+  - which enter cooldown
+  - which fail fast
+- desktop UI stores error types, but does not yet provide a dedicated filter or summary by `error_type`
+
+### Practical conclusion after this pass
+
+This version is good enough to stop firefighting raw transport failures.
+
+It is not yet good enough to call the gateway error model “finished”.
+
+The next meaningful step is to make adapters emit typed provider errors directly, so the classifier becomes a mapper of structured signals instead of a parser of strings.

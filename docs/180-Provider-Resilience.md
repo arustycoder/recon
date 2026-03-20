@@ -15,6 +15,7 @@ Prevent a flaky provider from being hit repeatedly by the gateway during fallbac
 - cooldown-aware graded provider health responses
 - routing that skips providers in cooldown when alternatives exist
 - manual reset to clear provider breaker state
+- last classified error surfaced in provider health
 
 ### Excluded
 
@@ -33,6 +34,9 @@ Prevent a flaky provider from being hit repeatedly by the gateway during fallbac
 - when an upstream provider closes a streaming response mid-generation, the gateway applies a short cooldown to reduce immediate retrial pressure
 - fallback routing prefers healthy providers and skips cooled-down providers when another route is available
 - `GET /api/providers/{provider_id}/health` returns a dedicated rate-limit status while the provider is blocked for `429`
+- `GET /api/providers/{provider_id}/health` now also returns:
+  - `last_error_type`
+  - `last_error_detail`
 - this does not imply automatic fallback to mock unless the caller explicitly requested `provider_strategy=fallback`
 
 ## API And Config Impact
@@ -54,3 +58,4 @@ Provider discovery now exposes:
 - operators can manually reset a provider after fixing keys, network reachability, or upstream service state
 - rate-limit cooldown should preserve the upstream signal in both request logs and provider health checks
 - stream-interruption cooldown should be shorter than a hard rate-limit cooldown and should not imply that the provider is fully unavailable
+- cooldown semantics are now driven by the gateway error classifier instead of scattered string checks

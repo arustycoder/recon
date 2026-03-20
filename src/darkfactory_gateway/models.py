@@ -100,6 +100,8 @@ class GatewayProviderHealthResponse(BaseModel):
     detail: str
     consecutive_failures: int = 0
     cooldown_remaining_seconds: int = 0
+    last_error_type: str = ""
+    last_error_detail: str = ""
 
 
 class GatewayProviderResetResponse(BaseModel):
@@ -123,6 +125,7 @@ class GatewayRequestInfo(BaseModel):
     estimated_cost_usd: float = 0.0
     attempted_provider_ids: list[str] = Field(default_factory=list)
     skill_ids: list[str] = Field(default_factory=list)
+    error_type: str = ""
     error_detail: str = ""
     created_at: str = ""
     updated_at: str = ""
@@ -149,3 +152,4 @@ class GatewayRequestSummaryResponse(BaseModel):
     estimated_cost_usd: float = 0.0
     by_provider: list[GatewayRequestSummaryGroup] = Field(default_factory=list)
     by_status: list[GatewayRequestSummaryGroup] = Field(default_factory=list)
+    by_error_type: list[GatewayRequestSummaryGroup] = Field(default_factory=list)
