@@ -217,5 +217,6 @@ The next meaningful step is to make adapters emit typed provider errors directly
 Update:
 
 - adapters now emit `GatewayProviderError`
+- provider-client code now emits `AssistantServiceError`
 - the next step is narrower:
   - make providers raise richer typed low-level causes before adapter normalization

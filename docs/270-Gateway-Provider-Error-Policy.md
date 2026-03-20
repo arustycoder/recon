@@ -47,11 +47,12 @@ Current policy intent:
 
 - policy currently lives alongside the classifier in `src/darkfactory_gateway/errors.py`
 - adapters now normalize provider failures into `GatewayProviderError`
+- provider client code now emits typed `AssistantServiceError` instances before adapter normalization
 - gateway service consumes normalized errors and applies policy-driven cooldown decisions
 - this is the first pass; sync retry is still partly implemented inside provider client logic for OpenAI-compatible flows
 
 ## Remaining Gaps
 
-- same-provider retry is not yet fully controlled by the gateway policy table end to end
+- same-provider retry is now typed-error driven, but not yet orchestrated entirely from the gateway policy table
 - fallback routing still depends mainly on request strategy plus provider availability
 - future versions should expose policy metadata in operator docs or admin APIs if this becomes externally configurable

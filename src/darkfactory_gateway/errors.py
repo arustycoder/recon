@@ -149,6 +149,21 @@ def normalize_gateway_error(error: Exception | GatewayErrorInfo | str) -> Gatewa
     if isinstance(error, GatewayProviderError):
         return error.error
     if isinstance(error, Exception):
+        error_type = getattr(error, "error_type", "")
+        detail = getattr(error, "detail", str(error))
+        http_status_code = int(getattr(error, "http_status_code", 0) or 0)
+        retryable = bool(getattr(error, "retryable", False))
+        if error_type and detail:
+            classified = classify_gateway_error(detail)
+            return GatewayErrorInfo(
+                error_type=error_type,
+                detail=detail,
+                http_status_code=http_status_code or classified.http_status_code,
+                provider_health_status=classified.provider_health_status,
+                cooldown_reason=classified.cooldown_reason,
+                retryable=retryable or classified.retryable,
+            )
+    if isinstance(error, Exception):
         return classify_gateway_error(str(error))
     return classify_gateway_error(str(error))
 

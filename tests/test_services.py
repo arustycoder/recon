@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from darkfactory.models import Project, ProviderSettings, Session
-from darkfactory.services import AssistantService
+from darkfactory.services import AssistantService, AssistantServiceError
 
 
 class AssistantServiceTests(unittest.TestCase):
@@ -222,7 +222,7 @@ class AssistantServiceTests(unittest.TestCase):
         context_manager.__exit__ = Mock(return_value=None)
 
         with patch("httpx.Client", return_value=context_manager):
-            with self.assertRaises(RuntimeError) as error:
+            with self.assertRaises(AssistantServiceError) as error:
                 self.service._reply_via_http(
                     api_url="http://localhost:8000/api/chat",
                     project=self.project,
@@ -234,6 +234,7 @@ class AssistantServiceTests(unittest.TestCase):
                 )
 
         self.assertIn("upstream provider returned 404", str(error.exception))
+        self.assertEqual(error.exception.error_type, "upstream_http_error")
         self.assertEqual(self.service.last_error_type(), "upstream_http_error")
 
     def test_fetch_gateway_providers_reads_gateway_registry(self) -> None:
@@ -371,7 +372,7 @@ class AssistantServiceTests(unittest.TestCase):
                 return ResponseContext(BrokenStreamResponse())
 
         with patch("httpx.Client", return_value=FakeClient()):
-            with self.assertRaises(RuntimeError) as error:
+            with self.assertRaises(AssistantServiceError) as error:
                 list(
                     self.service._stream_via_openai_compatible(
                         base_url="http://localhost:8000/v1",
@@ -387,6 +388,7 @@ class AssistantServiceTests(unittest.TestCase):
                 )
 
         self.assertIn("closed before the response completed", str(error.exception))
+        self.assertEqual(error.exception.error_type, "stream_interrupted")
         self.assertNotIn("incomplete chunked read", str(error.exception).lower())
 
     def test_reply_via_openai_compatible_retries_non_stream_after_partial_disconnect(self) -> None:
@@ -451,6 +453,37 @@ class AssistantServiceTests(unittest.TestCase):
 
         self.assertEqual(reply, "final non-stream reply")
         self.assertEqual(self.service.last_response_metrics().stream_mode, "single")
+
+    def test_non_stream_openai_rate_limit_raises_typed_error(self) -> None:
+        request = httpx.Request("POST", "http://localhost:8000/v1/chat/completions")
+        response = httpx.Response(429, request=request)
+
+        class FakeClient:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def post(self, *args, **kwargs):
+                return response
+
+        with patch("httpx.Client", return_value=FakeClient()):
+            with self.assertRaises(AssistantServiceError) as error:
+                self.service._request_openai_compatible_non_stream(
+                    base_url="http://localhost:8000/v1",
+                    api_key="secret",
+                    model="demo-model",
+                    project=self.project,
+                    session=self.session,
+                    recent_messages=[],
+                    user_message="hello",
+                    timeout=10.0,
+                    client_request_id="req-123",
+                )
+
+        self.assertEqual(error.exception.error_type, "rate_limited")
+        self.assertEqual(error.exception.http_status_code, 429)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,22 @@ from .models import Message, Project, ProviderSettings, ResponseMetrics, Session
 SUPPORTED_PROVIDERS = {"mock", "ollama", "openai_compatible", "http_backend"}
 
 
+class AssistantServiceError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        error_type: str,
+        detail: str,
+        http_status_code: int = 0,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(detail)
+        self.error_type = error_type
+        self.detail = detail
+        self.http_status_code = http_status_code
+        self.retryable = retryable
+
+
 class AssistantService:
     def __init__(self, settings: ProviderSettings | None = None) -> None:
         self._settings = settings
@@ -320,19 +336,26 @@ class AssistantService:
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             error_type, detail = self._extract_http_error(exc.response)
-            self._last_error_type = error_type
-            raise RuntimeError(
-                f"HTTP backend request failed: {detail or str(exc)}"
+            raise self._service_error(
+                error_type=error_type or self._classify_http_status_code(exc.response.status_code),
+                detail=f"HTTP backend request failed: {detail or str(exc)}",
+                http_status_code=exc.response.status_code,
+                retryable=exc.response.status_code >= 500,
             ) from exc
         except httpx.HTTPError as exc:
-            self._last_error_type = "upstream_unreachable"
-            raise RuntimeError(f"HTTP backend request failed: {exc}") from exc
+            raise self._service_error(
+                error_type="upstream_unreachable",
+                detail=f"HTTP backend request failed: {exc}",
+                retryable=True,
+            ) from exc
         data = response.json()
         self._apply_usage_metrics(data.get("usage") or {})
         reply = data.get("reply", "").strip()
         if not reply:
-            self._last_error_type = "empty_response"
-            raise ValueError("HTTP assistant response did not contain 'reply'")
+            raise self._service_error(
+                error_type="empty_response",
+                detail="HTTP assistant response did not contain 'reply'",
+            )
         return reply
 
     def _extract_http_error(self, response) -> tuple[str, str]:
@@ -364,6 +387,34 @@ class AssistantService:
     def _is_partial_stream_disconnect_detail(self, detail: str) -> bool:
         text = detail.lower()
         return "streaming connection closed before the response completed" in text
+
+    def _service_error(
+        self,
+        *,
+        error_type: str,
+        detail: str,
+        http_status_code: int = 0,
+        retryable: bool = False,
+    ) -> AssistantServiceError:
+        self._last_error_type = error_type
+        return AssistantServiceError(
+            error_type=error_type,
+            detail=detail,
+            http_status_code=http_status_code,
+            retryable=retryable,
+        )
+
+    def _sync_retry_policy(self, error: AssistantServiceError) -> bool:
+        return error.error_type == "stream_interrupted"
+
+    def _classify_http_status_code(self, status_code: int) -> str:
+        if status_code == 429:
+            return "rate_limited"
+        if status_code in {401, 403, 404} or 400 <= status_code < 500:
+            return "upstream_http_error"
+        if status_code >= 500:
+            return "upstream_http_error"
+        return "unknown"
 
     def _reply_via_openai_compatible(
         self,
@@ -397,8 +448,8 @@ class AssistantService:
                     client_request_id=client_request_id,
                 )
             )
-        except RuntimeError as exc:
-            if not self._is_partial_stream_disconnect_detail(str(exc)):
+        except AssistantServiceError as exc:
+            if not self._sync_retry_policy(exc):
                 raise
             return self._request_openai_compatible_non_stream(
                 base_url=base_url,
@@ -476,16 +527,48 @@ class AssistantService:
                         if text:
                             collected_parts.append(text)
                             yield text
-        except (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError) as exc:
+        except httpx.ReadTimeout as exc:
             if collected_parts:
-                raise RuntimeError(
-                    "Provider streaming connection closed before the response completed."
+                raise self._service_error(
+                    error_type="stream_interrupted",
+                    detail="Provider streaming connection closed before the response completed.",
+                    http_status_code=502,
+                    retryable=True,
                 ) from exc
-            stream_transport_error = exc
+            stream_transport_error = self._service_error(
+                error_type="upstream_timeout",
+                detail=f"OpenAI-compatible streaming request failed: {exc}",
+                http_status_code=504,
+                retryable=True,
+            )
+        except (httpx.ReadError, httpx.RemoteProtocolError) as exc:
+            if collected_parts:
+                raise self._service_error(
+                    error_type="stream_interrupted",
+                    detail="Provider streaming connection closed before the response completed.",
+                    http_status_code=502,
+                    retryable=True,
+                ) from exc
+            stream_transport_error = self._service_error(
+                error_type="upstream_unreachable",
+                detail=f"OpenAI-compatible streaming request failed: {exc}",
+                http_status_code=503,
+                retryable=True,
+            )
         except httpx.HTTPStatusError as exc:
-            raise RuntimeError(f"OpenAI-compatible streaming request failed: {exc}") from exc
+            raise self._service_error(
+                error_type=self._classify_http_status_code(exc.response.status_code),
+                detail=f"OpenAI-compatible streaming request failed: {exc}",
+                http_status_code=exc.response.status_code,
+                retryable=exc.response.status_code >= 500,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"OpenAI-compatible streaming request failed: {exc}") from exc
+            raise self._service_error(
+                error_type="upstream_unreachable",
+                detail=f"OpenAI-compatible streaming request failed: {exc}",
+                http_status_code=503,
+                retryable=True,
+            ) from exc
 
         if collected_parts:
             return
@@ -502,11 +585,16 @@ class AssistantService:
                 timeout=timeout,
                 client_request_id=client_request_id,
             )
-        except RuntimeError as exc:
+        except AssistantServiceError as exc:
             if stream_transport_error is not None:
-                raise RuntimeError(
-                    "Provider streaming request ended early and the fallback non-stream "
-                    f"request also failed: {exc}"
+                raise self._service_error(
+                    error_type=exc.error_type,
+                    detail=(
+                        "Provider streaming request ended early and the fallback non-stream "
+                        f"request also failed: {exc.detail}"
+                    ),
+                    http_status_code=exc.http_status_code,
+                    retryable=exc.retryable,
                 ) from exc
             raise
         yield text
@@ -548,14 +636,37 @@ class AssistantService:
             with httpx.Client(timeout=timeout) as client:
                 response = client.post(endpoint, json=payload, headers=headers)
                 response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise self._service_error(
+                error_type=self._classify_http_status_code(exc.response.status_code),
+                detail=f"OpenAI-compatible fallback request failed: {exc}",
+                http_status_code=exc.response.status_code,
+                retryable=exc.response.status_code >= 500,
+            ) from exc
+        except httpx.ReadTimeout as exc:
+            raise self._service_error(
+                error_type="upstream_timeout",
+                detail=f"OpenAI-compatible fallback request failed: {exc}",
+                http_status_code=504,
+                retryable=True,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"OpenAI-compatible fallback request failed: {exc}") from exc
+            raise self._service_error(
+                error_type="upstream_unreachable",
+                detail=f"OpenAI-compatible fallback request failed: {exc}",
+                http_status_code=503,
+                retryable=True,
+            ) from exc
         data = response.json()
         self._last_metrics.stream_mode = "single"
         self._apply_usage_metrics(data.get("usage") or {})
         text = self._extract_openai_response_text(data)
         if not text:
-            raise ValueError("OpenAI-compatible response did not contain assistant text")
+            raise self._service_error(
+                error_type="empty_response",
+                detail="OpenAI-compatible response did not contain assistant text",
+                http_status_code=502,
+            )
         return text
 
     def _apply_usage_metrics(self, usage: dict) -> None:
