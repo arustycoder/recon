@@ -41,6 +41,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Gateway-side metrics, provider health grading/reset, and adapter abstraction
 - Gateway admin panel for provider, request, skill, and overview inspection
 - Stable streaming error handling for direct providers and gateway SSE responses
+- Gateway error taxonomy, sync/stream parity, and provider-specific resilience rules
 - Windows installer packaging requirement
 
 ### Excluded
@@ -192,6 +193,7 @@ Model / Business Logic / Data Source
 - Add gateway-side metrics/cost tracking, graded provider health, and adapter abstraction
 - Add a first gateway admin panel for operational inspection and provider reset
 - Normalize upstream streaming errors so desktop and gateway callers receive structured failures instead of broken chunked responses
+- Consolidate gateway error handling so sync and stream paths expose consistent upstream semantics
 
 ### Phase 5: Domainization
 

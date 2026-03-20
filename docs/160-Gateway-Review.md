@@ -27,6 +27,7 @@ The gateway now has three meaningful layers instead of one:
 - fallback can hide flaky providers if gateway-side logs are not surfaced clearly
 - phase-based skills are useful, but they are not yet true tools
 - the default gateway adapter still reuses desktop provider code, so the boundary is cleaner but not fully independent yet
+- sync and stream error handling can still drift unless their contracts are reviewed together whenever resilience logic changes
 
 ## Industry Comparison
 
@@ -53,3 +54,4 @@ The gateway now has three meaningful layers instead of one:
 - add distributed provider resilience state for multi-process deployments
 - evolve phase-based skills toward tool-using workflows only when the product truly needs them
 - replace the default `AssistantService` adapter with gateway-native provider adapters over time
+- unify gateway error taxonomy so `404`, `429`, timeout, stream interruption, and provider misconfiguration always map to stable client-facing semantics
