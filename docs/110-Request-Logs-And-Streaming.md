@@ -39,6 +39,7 @@ Improve operator confidence and chat responsiveness by adding:
   - detail
 - optimized for quick troubleshooting instead of full reporting
 - supports simple provider and status filters
+- supports error-type filtering for normalized gateway/backend failures
 - supports clearing either all logs or the currently filtered slice
 
 ### Streaming Chat

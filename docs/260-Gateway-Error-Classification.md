@@ -108,12 +108,14 @@ Short cooldown and rate-limit cooldown still exist, but they are now driven by c
 ## Implementation Notes
 
 - classification lives in `src/darkfactory_gateway/errors.py`
+- adapter failures are normalized into `GatewayProviderError`
 - request persistence stores `error_type` in SQLite
 - request summaries aggregate `by_error_type`
 - provider health no longer infers everything from raw exception text
+- retry/cooldown decisions now start from a shared policy table documented in `docs/270-Gateway-Provider-Error-Policy.md`
 
 ## Remaining Gaps
 
-- classification still begins from provider detail text, not rich typed exceptions from every adapter
-- desktop request logs now persist `error_type`, but the current UI still treats it as a troubleshooting aid rather than a first-class operational filter
+- some classifications still begin from provider detail text, but adapter boundaries now emit typed gateway provider exceptions
+- desktop request logs now persist `error_type` and expose a basic error-type filter, but they still do not offer summary or trend views by category
 - retry policy is improved, but not yet fully centralized into one declarative table

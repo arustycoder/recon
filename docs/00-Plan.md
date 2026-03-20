@@ -195,6 +195,7 @@ Model / Business Logic / Data Source
 - Normalize upstream streaming errors so desktop and gateway callers receive structured failures instead of broken chunked responses
 - Consolidate gateway error handling so sync and stream paths expose consistent upstream semantics
 - Persist normalized gateway `error_type` values and expose them in provider health and request summaries
+- Introduce typed gateway provider errors and a first shared retry/cooldown policy table
 
 ### Phase 5: Domainization
 

@@ -11,7 +11,12 @@ from darkfactory.models import Message, Project, ResponseMetrics, Session
 from darkfactory.storage import Storage
 
 from .adapters import GatewayAdapterFactory, GatewayProviderAdapter
-from .errors import GatewayErrorInfo, classify_gateway_error
+from .errors import (
+    GatewayErrorInfo,
+    classify_gateway_error,
+    gateway_error_policy,
+    normalize_gateway_error,
+)
 from .models import (
     GatewayChatRequest,
     GatewayChatResponse,
@@ -488,7 +493,7 @@ class GatewayService:
                     break
                 except Exception as exc:
                     last_error = exc
-                    error = classify_gateway_error(str(exc))
+                    error = normalize_gateway_error(exc)
                     self._record_provider_failure(provider.id, provider, error)
                     self.request_tracker.mark_error(
                         request_id,
@@ -702,7 +707,7 @@ class GatewayService:
                     self._persist_request_state(request_id)
                     return
                 except Exception as exc:
-                    error = classify_gateway_error(str(exc))
+                    error = normalize_gateway_error(exc)
                     self._record_provider_failure(provider.id, provider, error)
                     self.request_tracker.mark_error(
                         request_id,
@@ -912,13 +917,14 @@ class GatewayService:
         state.consecutive_failures += 1
         state.last_error_type = error.error_type
         state.last_error_detail = error.detail
-        if error.cooldown_reason == "rate_limited":
+        policy = gateway_error_policy(error)
+        if policy.cooldown_mode == "rate_limit":
             state.cooldown_until = time.time() + provider.cooldown_seconds
             state.reason = "rate_limited"
-        elif error.cooldown_reason == "stream_unstable":
+        elif policy.cooldown_mode == "short":
             state.cooldown_until = time.time() + max(5, min(10, provider.cooldown_seconds))
             state.reason = "stream_unstable"
-        elif state.consecutive_failures >= provider.max_consecutive_failures:
+        elif policy.cooldown_mode == "threshold" and state.consecutive_failures >= provider.max_consecutive_failures:
             state.cooldown_until = time.time() + provider.cooldown_seconds
             state.reason = "cooldown"
         self._provider_circuits[provider_id] = state

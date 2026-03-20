@@ -13,6 +13,19 @@ class GatewayErrorInfo:
     retryable: bool = False
 
 
+@dataclass(slots=True)
+class GatewayErrorPolicy:
+    error_type: str
+    retry_same_provider_sync: bool = False
+    cooldown_mode: str = "threshold"
+
+
+class GatewayProviderError(RuntimeError):
+    def __init__(self, error: GatewayErrorInfo) -> None:
+        super().__init__(error.detail)
+        self.error = error
+
+
 def classify_gateway_error(detail: str) -> GatewayErrorInfo:
     text = (detail or "").strip()
     lowered = text.lower()
@@ -127,4 +140,47 @@ def classify_gateway_error(detail: str) -> GatewayErrorInfo:
         detail=text,
         http_status_code=502,
         provider_health_status="degraded",
+    )
+
+
+def normalize_gateway_error(error: Exception | GatewayErrorInfo | str) -> GatewayErrorInfo:
+    if isinstance(error, GatewayErrorInfo):
+        return error
+    if isinstance(error, GatewayProviderError):
+        return error.error
+    if isinstance(error, Exception):
+        return classify_gateway_error(str(error))
+    return classify_gateway_error(str(error))
+
+
+def gateway_error_policy(error: GatewayErrorInfo) -> GatewayErrorPolicy:
+    error_type = error.error_type
+    if error_type == "rate_limited":
+        return GatewayErrorPolicy(
+            error_type=error_type,
+            retry_same_provider_sync=False,
+            cooldown_mode="rate_limit",
+        )
+    if error_type == "stream_interrupted":
+        return GatewayErrorPolicy(
+            error_type=error_type,
+            retry_same_provider_sync=True,
+            cooldown_mode="short",
+        )
+    if error_type in {"upstream_timeout", "upstream_unreachable"}:
+        return GatewayErrorPolicy(
+            error_type=error_type,
+            retry_same_provider_sync=False,
+            cooldown_mode="threshold",
+        )
+    if error_type in {"provider_disabled", "provider_cooldown", "misconfigured"}:
+        return GatewayErrorPolicy(
+            error_type=error_type,
+            retry_same_provider_sync=False,
+            cooldown_mode="none",
+        )
+    return GatewayErrorPolicy(
+        error_type=error_type,
+        retry_same_provider_sync=False,
+        cooldown_mode="threshold",
     )

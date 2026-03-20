@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from darkfactory.config import load_env
 
-from .errors import classify_gateway_error
+from .errors import normalize_gateway_error
 from .models import (
     GatewayCancelResponse,
     GatewayChatRequest,
@@ -90,7 +90,7 @@ def create_app(service: GatewayService | None = None) -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
-            error = classify_gateway_error(str(exc))
+            error = normalize_gateway_error(exc)
             return JSONResponse(
                 status_code=error.http_status_code,
                 content={

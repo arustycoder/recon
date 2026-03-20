@@ -185,6 +185,7 @@ class MainWindowTests(unittest.TestCase):
             provider="mock",
             model="mock",
             status="success",
+            error_type="",
             latency_ms=11,
         )
         self.storage.add_request_log(
@@ -192,6 +193,7 @@ class MainWindowTests(unittest.TestCase):
             provider="openai_compatible",
             model="demo",
             status="error",
+            error_type="rate_limited",
             latency_ms=22,
         )
 
@@ -200,10 +202,15 @@ class MainWindowTests(unittest.TestCase):
         dialog.populate()
         self.assertEqual(dialog.log_tree.topLevelItemCount(), 1)
 
+        dialog.provider_filter.setCurrentIndex(0)
+        dialog.error_type_filter.setCurrentText("rate_limited")
+        dialog.populate()
+        self.assertEqual(dialog.log_tree.topLevelItemCount(), 1)
+
         with patch("darkfactory.ui.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
             dialog.clear_logs()
 
-        self.assertEqual(len(self.storage.list_request_logs(provider="mock")), 0)
+        self.assertEqual(len(self.storage.list_request_logs(error_type="rate_limited")), 0)
         dialog.close()
 
     def test_gateway_provider_dialog_shows_gateway_status(self) -> None:

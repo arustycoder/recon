@@ -462,6 +462,23 @@ class RequestLogDialog(QDialog):
             self.status_filter.addItem(status, status)
         self.status_filter.currentIndexChanged.connect(self.populate)
 
+        self.error_type_filter = QComboBox()
+        self.error_type_filter.addItem("全部错误类型", "")
+        for error_type in (
+            "rate_limited",
+            "stream_interrupted",
+            "upstream_timeout",
+            "upstream_unreachable",
+            "upstream_http_error",
+            "empty_response",
+            "invalid_response",
+            "misconfigured",
+            "unknown",
+            "canceled",
+        ):
+            self.error_type_filter.addItem(error_type, error_type)
+        self.error_type_filter.currentIndexChanged.connect(self.populate)
+
         self.summary_label = QLabel("暂无日志。")
 
         self.log_tree = QTreeWidget()
@@ -499,6 +516,8 @@ class RequestLogDialog(QDialog):
         filter_row.addWidget(self.provider_filter)
         filter_row.addWidget(QLabel("状态"))
         filter_row.addWidget(self.status_filter)
+        filter_row.addWidget(QLabel("错误类型"))
+        filter_row.addWidget(self.error_type_filter)
         filter_row.addStretch(1)
 
         button_row = QHBoxLayout()
@@ -521,6 +540,7 @@ class RequestLogDialog(QDialog):
             limit=200,
             provider=str(self.provider_filter.currentData() or ""),
             status=str(self.status_filter.currentData() or ""),
+            error_type=str(self.error_type_filter.currentData() or ""),
         )
         if logs:
             avg_latency = int(sum(entry.latency_ms for entry in logs) / len(logs))
@@ -559,14 +579,19 @@ class RequestLogDialog(QDialog):
     def clear_logs(self) -> None:
         provider = str(self.provider_filter.currentData() or "")
         status = str(self.status_filter.currentData() or "")
-        if provider or status:
+        error_type = str(self.error_type_filter.currentData() or "")
+        if provider or status or error_type:
             message = "确认清空当前筛选条件下的请求日志吗？"
         else:
             message = "确认清空全部请求日志吗？"
         result = QMessageBox.question(self, "清空日志", message)
         if result != QMessageBox.StandardButton.Yes:
             return
-        self._storage.clear_request_logs(provider=provider, status=status)
+        self._storage.clear_request_logs(
+            provider=provider,
+            status=status,
+            error_type=error_type,
+        )
         self.populate()
 
 

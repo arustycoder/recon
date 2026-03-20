@@ -192,13 +192,14 @@ Update:
 ### Problems materially reduced in this pass
 
 - sync chat and stream chat now speak in the same error vocabulary instead of two unrelated shapes
+- adapter boundaries now emit typed gateway provider exceptions instead of only raw runtime failures
 - provider health is no longer just “healthy or not”; operators can now see the last classified failure
 - request analytics can now answer “what kind of failure is happening” without parsing free-form detail
 - desktop-side request logs can now preserve gateway `error_type` as well as text detail
 
 ### Problems not actually solved yet
 
-- adapters still raise generic exceptions; the classifier still has to infer intent from detail text
+- many provider-specific details still originate as free-form text before they are normalized into typed gateway errors
 - there is still no single policy table that says:
   - which error types retry
   - which enter cooldown
@@ -212,3 +213,9 @@ This version is good enough to stop firefighting raw transport failures.
 It is not yet good enough to call the gateway error model “finished”.
 
 The next meaningful step is to make adapters emit typed provider errors directly, so the classifier becomes a mapper of structured signals instead of a parser of strings.
+
+Update:
+
+- adapters now emit `GatewayProviderError`
+- the next step is narrower:
+  - make providers raise richer typed low-level causes before adapter normalization

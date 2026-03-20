@@ -464,6 +464,7 @@ class Storage:
         *,
         provider: str = "",
         status: str = "",
+        error_type: str = "",
     ) -> list[RequestLog]:
         where_clauses: list[str] = []
         values: list[str | int] = []
@@ -473,6 +474,9 @@ class Storage:
         if status:
             where_clauses.append("status = ?")
             values.append(status)
+        if error_type:
+            where_clauses.append("error_type = ?")
+            values.append(error_type)
 
         where_sql = ""
         if where_clauses:
@@ -506,7 +510,13 @@ class Storage:
             ).fetchall()
         return [RequestLog(**dict(row)) for row in rows]
 
-    def clear_request_logs(self, *, provider: str = "", status: str = "") -> None:
+    def clear_request_logs(
+        self,
+        *,
+        provider: str = "",
+        status: str = "",
+        error_type: str = "",
+    ) -> None:
         where_clauses: list[str] = []
         values: list[str] = []
         if provider:
@@ -515,6 +525,9 @@ class Storage:
         if status:
             where_clauses.append("status = ?")
             values.append(status)
+        if error_type:
+            where_clauses.append("error_type = ?")
+            values.append(error_type)
 
         sql = "DELETE FROM request_logs"
         if where_clauses:

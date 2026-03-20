@@ -25,7 +25,11 @@ from darkfactory_gateway.adapters import (
     OpenAICompatibleGatewayAdapter,
 )
 from darkfactory_gateway.app import create_app
-from darkfactory_gateway.errors import classify_gateway_error
+from darkfactory_gateway.errors import (
+    GatewayProviderError,
+    classify_gateway_error,
+    gateway_error_policy,
+)
 from darkfactory_gateway.models import GatewayChatRequest
 from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
 from darkfactory_gateway.service import GatewayService
@@ -749,6 +753,47 @@ class GatewayAppTests(unittest.TestCase):
             ),
             HttpBackendGatewayAdapter,
         )
+
+    def test_openai_adapter_wraps_runtime_failures_as_typed_provider_errors(self) -> None:
+        adapter = OpenAICompatibleGatewayAdapter(
+            ProviderSettings(
+                provider="openai_compatible",
+                openai_base_url="http://localhost:8000/v1",
+                openai_model="demo",
+            )
+        )
+        request = service_request()
+        project, session, _, _ = self.service._to_domain_inputs(
+            request,
+            pre_context_skills=[],
+            prompt_skills=[],
+        )
+
+        with unittest.mock.patch.object(
+            adapter._service,
+            "_reply_via_openai_compatible",
+            side_effect=RuntimeError("429 Too Many Requests"),
+        ):
+            with self.assertRaises(GatewayProviderError) as error:
+                adapter.reply(
+                    project=project,
+                    session=session,
+                    recent_messages=[],
+                    user_message="hello",
+                )
+
+        self.assertEqual(error.exception.error.error_type, "rate_limited")
+
+    def test_gateway_error_policy_maps_stream_interrupt_to_short_cooldown(self) -> None:
+        policy = gateway_error_policy(
+            classify_gateway_error(
+                "Provider streaming connection closed before the response completed."
+            )
+        )
+
+        self.assertEqual(policy.error_type, "stream_interrupted")
+        self.assertTrue(policy.retry_same_provider_sync)
+        self.assertEqual(policy.cooldown_mode, "short")
 
 
 def service_request(**updates):

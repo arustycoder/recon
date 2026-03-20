@@ -127,12 +127,16 @@ class StorageTests(unittest.TestCase):
 
             self.assertEqual(len(storage.list_request_logs(provider="mock")), 1)
             self.assertEqual(len(storage.list_request_logs(status="error")), 1)
+            self.assertEqual(len(storage.list_request_logs(error_type="rate_limited")), 1)
 
             storage.clear_request_logs(provider="mock")
             logs = storage.list_request_logs()
             self.assertEqual(len(logs), 1)
             self.assertEqual(logs[0].provider, "openai_compatible")
             self.assertEqual(logs[0].error_type, "rate_limited")
+
+            storage.clear_request_logs(error_type="rate_limited")
+            self.assertEqual(len(storage.list_request_logs()), 0)
 
     def test_gateway_request_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

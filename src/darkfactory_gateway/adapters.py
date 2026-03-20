@@ -7,6 +7,8 @@ from typing import Iterable, Iterator, Protocol
 from darkfactory.models import Message, Project, ProviderSettings, ResponseMetrics, Session
 from darkfactory.services import AssistantService
 
+from .errors import GatewayProviderError, normalize_gateway_error
+
 
 @dataclass(slots=True)
 class GatewayAdapterResult:
@@ -71,7 +73,10 @@ class BaseGatewayAdapter:
         )
 
     def health_check(self) -> str:
-        return self._service.health_check(self._settings)
+        try:
+            return self._service.health_check(self._settings)
+        except Exception as exc:
+            raise GatewayProviderError(normalize_gateway_error(exc)) from exc
 
     def target_label(self) -> str:
         return self._service.target_label(self._settings)
@@ -93,6 +98,9 @@ class BaseGatewayAdapter:
             metrics=metrics,
         )
 
+    def _provider_error(self, exc: Exception) -> GatewayProviderError:
+        return GatewayProviderError(normalize_gateway_error(exc))
+
 
 class MockGatewayAdapter(BaseGatewayAdapter):
     def stream_reply(
@@ -107,10 +115,13 @@ class MockGatewayAdapter(BaseGatewayAdapter):
         started_at = perf_counter()
         first_token_latency_ms = 0
         self._service._last_metrics = ResponseMetrics(stream_mode="stream")
-        for chunk in self._service._stream_via_mock(project=project, user_message=user_message):
-            if chunk and first_token_latency_ms == 0:
-                first_token_latency_ms = int((perf_counter() - started_at) * 1000)
-            yield chunk
+        try:
+            for chunk in self._service._stream_via_mock(project=project, user_message=user_message):
+                if chunk and first_token_latency_ms == 0:
+                    first_token_latency_ms = int((perf_counter() - started_at) * 1000)
+                yield chunk
+        except Exception as exc:
+            raise self._provider_error(exc) from exc
         self._capture_metrics(started_at=started_at, first_token_latency_ms=first_token_latency_ms)
 
 
@@ -126,17 +137,20 @@ class OllamaGatewayAdapter(BaseGatewayAdapter):
     ) -> str:
         started_at = perf_counter()
         timeout = float(self._service.request_timeout_seconds(self._settings))
-        reply = self._service._reply_via_openai_compatible(
-            base_url=self._settings.ollama_url or "http://127.0.0.1:11434/v1",
-            api_key=self._settings.ollama_api_key or "ollama",
-            model=self._settings.ollama_model,
-            project=project,
-            session=session,
-            recent_messages=recent_messages,
-            user_message=user_message,
-            timeout=timeout,
-            client_request_id=client_request_id,
-        )
+        try:
+            reply = self._service._reply_via_openai_compatible(
+                base_url=self._settings.ollama_url or "http://127.0.0.1:11434/v1",
+                api_key=self._settings.ollama_api_key or "ollama",
+                model=self._settings.ollama_model,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+                client_request_id=client_request_id,
+            )
+        except Exception as exc:
+            raise self._provider_error(exc) from exc
         self._capture_metrics(
             started_at=started_at,
             first_token_latency_ms=self._service.last_response_metrics().first_token_latency_ms,
@@ -156,20 +170,23 @@ class OllamaGatewayAdapter(BaseGatewayAdapter):
         first_token_latency_ms = 0
         timeout = float(self._service.request_timeout_seconds(self._settings))
         self._service._last_metrics = ResponseMetrics(stream_mode="stream")
-        for chunk in self._service._stream_via_openai_compatible(
-            base_url=self._settings.ollama_url or "http://127.0.0.1:11434/v1",
-            api_key=self._settings.ollama_api_key or "ollama",
-            model=self._settings.ollama_model,
-            project=project,
-            session=session,
-            recent_messages=recent_messages,
-            user_message=user_message,
-            timeout=timeout,
-            client_request_id=client_request_id,
-        ):
-            if chunk and first_token_latency_ms == 0:
-                first_token_latency_ms = int((perf_counter() - started_at) * 1000)
-            yield chunk
+        try:
+            for chunk in self._service._stream_via_openai_compatible(
+                base_url=self._settings.ollama_url or "http://127.0.0.1:11434/v1",
+                api_key=self._settings.ollama_api_key or "ollama",
+                model=self._settings.ollama_model,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+                client_request_id=client_request_id,
+            ):
+                if chunk and first_token_latency_ms == 0:
+                    first_token_latency_ms = int((perf_counter() - started_at) * 1000)
+                yield chunk
+        except Exception as exc:
+            raise self._provider_error(exc) from exc
         self._capture_metrics(started_at=started_at, first_token_latency_ms=first_token_latency_ms)
 
 
@@ -185,17 +202,20 @@ class OpenAICompatibleGatewayAdapter(BaseGatewayAdapter):
     ) -> str:
         started_at = perf_counter()
         timeout = float(self._service.request_timeout_seconds(self._settings))
-        reply = self._service._reply_via_openai_compatible(
-            base_url=self._settings.openai_base_url,
-            api_key=self._settings.openai_api_key,
-            model=self._settings.openai_model,
-            project=project,
-            session=session,
-            recent_messages=recent_messages,
-            user_message=user_message,
-            timeout=timeout,
-            client_request_id=client_request_id,
-        )
+        try:
+            reply = self._service._reply_via_openai_compatible(
+                base_url=self._settings.openai_base_url,
+                api_key=self._settings.openai_api_key,
+                model=self._settings.openai_model,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+                client_request_id=client_request_id,
+            )
+        except Exception as exc:
+            raise self._provider_error(exc) from exc
         self._capture_metrics(
             started_at=started_at,
             first_token_latency_ms=self._service.last_response_metrics().first_token_latency_ms,
@@ -215,20 +235,23 @@ class OpenAICompatibleGatewayAdapter(BaseGatewayAdapter):
         first_token_latency_ms = 0
         timeout = float(self._service.request_timeout_seconds(self._settings))
         self._service._last_metrics = ResponseMetrics(stream_mode="stream")
-        for chunk in self._service._stream_via_openai_compatible(
-            base_url=self._settings.openai_base_url,
-            api_key=self._settings.openai_api_key,
-            model=self._settings.openai_model,
-            project=project,
-            session=session,
-            recent_messages=recent_messages,
-            user_message=user_message,
-            timeout=timeout,
-            client_request_id=client_request_id,
-        ):
-            if chunk and first_token_latency_ms == 0:
-                first_token_latency_ms = int((perf_counter() - started_at) * 1000)
-            yield chunk
+        try:
+            for chunk in self._service._stream_via_openai_compatible(
+                base_url=self._settings.openai_base_url,
+                api_key=self._settings.openai_api_key,
+                model=self._settings.openai_model,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+                client_request_id=client_request_id,
+            ):
+                if chunk and first_token_latency_ms == 0:
+                    first_token_latency_ms = int((perf_counter() - started_at) * 1000)
+                yield chunk
+        except Exception as exc:
+            raise self._provider_error(exc) from exc
         self._capture_metrics(started_at=started_at, first_token_latency_ms=first_token_latency_ms)
 
 
@@ -245,15 +268,18 @@ class HttpBackendGatewayAdapter(BaseGatewayAdapter):
         started_at = perf_counter()
         timeout = float(self._service.request_timeout_seconds(self._settings))
         self._service._last_metrics = ResponseMetrics(stream_mode="single")
-        reply = self._service._reply_via_http(
-            api_url=self._settings.api_url,
-            project=project,
-            session=session,
-            recent_messages=recent_messages,
-            user_message=user_message,
-            timeout=timeout,
-            client_request_id=client_request_id,
-        )
+        try:
+            reply = self._service._reply_via_http(
+                api_url=self._settings.api_url,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+                client_request_id=client_request_id,
+            )
+        except Exception as exc:
+            raise self._provider_error(exc) from exc
         self._capture_metrics(
             started_at=started_at,
             first_token_latency_ms=int((perf_counter() - started_at) * 1000),
