@@ -114,6 +114,7 @@ Short cooldown and rate-limit cooldown still exist, but they are now driven by c
 - request summaries aggregate `by_error_type`
 - provider health no longer infers everything from raw exception text
 - retry/cooldown decisions now start from a shared policy table documented in `docs/270-Gateway-Provider-Error-Policy.md`
+- same-provider sync recovery for OpenAI-compatible flows now also consults that shared policy table
 
 ## Remaining Gaps
 

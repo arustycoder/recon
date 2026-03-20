@@ -485,6 +485,23 @@ class AssistantServiceTests(unittest.TestCase):
         self.assertEqual(error.exception.error_type, "rate_limited")
         self.assertEqual(error.exception.http_status_code, 429)
 
+    def test_sync_retry_policy_retries_timeout_but_not_rate_limit(self) -> None:
+        timeout_error = AssistantServiceError(
+            error_type="upstream_timeout",
+            detail="timeout",
+            http_status_code=504,
+            retryable=True,
+        )
+        rate_limit_error = AssistantServiceError(
+            error_type="rate_limited",
+            detail="429",
+            http_status_code=429,
+            retryable=False,
+        )
+
+        self.assertTrue(self.service._sync_retry_policy(timeout_error))
+        self.assertFalse(self.service._sync_retry_policy(rate_limit_error))
+
 
 if __name__ == "__main__":
     unittest.main()

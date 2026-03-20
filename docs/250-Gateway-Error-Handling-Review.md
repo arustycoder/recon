@@ -218,5 +218,6 @@ Update:
 
 - adapters now emit `GatewayProviderError`
 - provider-client code now emits `AssistantServiceError`
+- same-provider sync retry now also uses the shared error policy instead of a local one-off rule
 - the next step is narrower:
   - make providers raise richer typed low-level causes before adapter normalization

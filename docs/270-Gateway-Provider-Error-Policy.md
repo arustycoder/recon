@@ -25,10 +25,10 @@ Current policy intent:
   - same-provider sync retry: yes
   - cooldown: short cooldown window
 - `upstream_timeout`
-  - same-provider sync retry: no at gateway routing level
+  - same-provider sync retry: yes
   - cooldown: threshold-based
 - `upstream_unreachable`
-  - same-provider sync retry: no
+  - same-provider sync retry: yes
   - cooldown: threshold-based
 - `provider_disabled`
   - same-provider sync retry: no
@@ -49,10 +49,10 @@ Current policy intent:
 - adapters now normalize provider failures into `GatewayProviderError`
 - provider client code now emits typed `AssistantServiceError` instances before adapter normalization
 - gateway service consumes normalized errors and applies policy-driven cooldown decisions
-- this is the first pass; sync retry is still partly implemented inside provider client logic for OpenAI-compatible flows
+- provider client sync recovery now consults the shared policy table for same-provider non-stream retry decisions
 
 ## Remaining Gaps
 
-- same-provider retry is now typed-error driven, but not yet orchestrated entirely from the gateway policy table
+- sync retry policy is now shared, but fallback routing and retry counting are still not fully driven from one centralized execution planner
 - fallback routing still depends mainly on request strategy plus provider availability
 - future versions should expose policy metadata in operator docs or admin APIs if this becomes externally configurable

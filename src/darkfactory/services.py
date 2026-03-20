@@ -11,6 +11,7 @@ from .config import (
     derive_http_stream_url,
     provider_settings_from_env,
 )
+from darkfactory_gateway.errors import gateway_error_policy_for
 from .models import Message, Project, ProviderSettings, ResponseMetrics, Session
 
 
@@ -405,7 +406,7 @@ class AssistantService:
         )
 
     def _sync_retry_policy(self, error: AssistantServiceError) -> bool:
-        return error.error_type == "stream_interrupted"
+        return gateway_error_policy_for(error).retry_same_provider_sync
 
     def _classify_http_status_code(self, status_code: int) -> str:
         if status_code == 429:
@@ -572,6 +573,9 @@ class AssistantService:
 
         if collected_parts:
             return
+
+        if stream_transport_error is not None and not self._sync_retry_policy(stream_transport_error):
+            raise stream_transport_error
 
         try:
             text = self._request_openai_compatible_non_stream(

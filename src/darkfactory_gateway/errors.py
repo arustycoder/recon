@@ -185,7 +185,7 @@ def gateway_error_policy(error: GatewayErrorInfo) -> GatewayErrorPolicy:
     if error_type in {"upstream_timeout", "upstream_unreachable"}:
         return GatewayErrorPolicy(
             error_type=error_type,
-            retry_same_provider_sync=False,
+            retry_same_provider_sync=True,
             cooldown_mode="threshold",
         )
     if error_type in {"provider_disabled", "provider_cooldown", "misconfigured"}:
@@ -199,3 +199,7 @@ def gateway_error_policy(error: GatewayErrorInfo) -> GatewayErrorPolicy:
         retry_same_provider_sync=False,
         cooldown_mode="threshold",
     )
+
+
+def gateway_error_policy_for(error: Exception | GatewayErrorInfo | str) -> GatewayErrorPolicy:
+    return gateway_error_policy(normalize_gateway_error(error))

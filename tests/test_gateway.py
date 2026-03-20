@@ -29,6 +29,7 @@ from darkfactory_gateway.errors import (
     GatewayProviderError,
     classify_gateway_error,
     gateway_error_policy,
+    gateway_error_policy_for,
 )
 from darkfactory_gateway.models import GatewayChatRequest
 from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
@@ -794,6 +795,13 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(policy.error_type, "stream_interrupted")
         self.assertTrue(policy.retry_same_provider_sync)
         self.assertEqual(policy.cooldown_mode, "short")
+
+    def test_gateway_error_policy_retries_timeout_sync_recovery(self) -> None:
+        policy = gateway_error_policy_for("OpenAI-compatible streaming request failed: timed out")
+
+        self.assertEqual(policy.error_type, "upstream_timeout")
+        self.assertTrue(policy.retry_same_provider_sync)
+        self.assertEqual(policy.cooldown_mode, "threshold")
 
 
 def service_request(**updates):
