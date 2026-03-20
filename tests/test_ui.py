@@ -59,6 +59,12 @@ class MainWindowTests(unittest.TestCase):
         self.assertGreaterEqual(len(labels), 2)
         return labels[-1].text()
 
+    def message_label_texts(self, row: int) -> list[str]:
+        item = self.window.message_list.item(row)
+        widget = self.window.message_list.itemWidget(item)
+        self.assertIsNotNone(widget)
+        return [label.text() for label in widget.findChildren(QLabel)]
+
     def test_pending_message_and_slow_notice_are_visible(self) -> None:
         self.assertIsNotNone(self.window.current_session)
         session_id = self.window.current_session.id
@@ -69,10 +75,12 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(self.window.message_list.count(), baseline_count + 1)
         self.assertIn("正在思考", self.message_body_text(self.window.message_list.count() - 1))
+        self.assertIn("输入中", self.message_label_texts(self.window.message_list.count() - 1))
 
         self.window.on_slow_response_timeout()
 
         self.assertIn("请求耗时较长", self.message_body_text(self.window.message_list.count() - 1))
+        self.assertIn("输入中", self.message_label_texts(self.window.message_list.count() - 1))
         self.assertIn("请求耗时较长", self.window.statusBar().currentMessage())
 
     def test_reply_is_written_to_origin_session_after_switch(self) -> None:
@@ -139,6 +147,7 @@ class MainWindowTests(unittest.TestCase):
         self.window.on_assistant_stream(request_id, session_id, "第一段回复")
 
         self.assertIn("第一段回复", self.message_body_text(self.window.message_list.count() - 1))
+        self.assertIn("输入中", self.message_label_texts(self.window.message_list.count() - 1))
         self.assertIn("正在接收回复", self.window.statusBar().currentMessage())
 
     def test_scene_library_populates_prompt_on_click(self) -> None:

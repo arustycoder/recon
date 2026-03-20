@@ -207,7 +207,14 @@ class HealthCheckWorker(QThread):
 
 
 class MessageCard(QWidget):
-    def __init__(self, *, role: str, content: str, timestamp: str = "刚刚") -> None:
+    def __init__(
+        self,
+        *,
+        role: str,
+        content: str,
+        timestamp: str = "刚刚",
+        state_label: str = "",
+    ) -> None:
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
@@ -223,15 +230,27 @@ class MessageCard(QWidget):
         bubble_layout.setContentsMargins(12, 10, 12, 10)
         bubble_layout.setSpacing(6)
 
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+
         title = QLabel(f"{ROLE_LABELS.get(role, role)}  {timestamp}")
         title.setObjectName("message-card-title")
+
+        state = QLabel(state_label)
+        state.setObjectName("message-card-state")
+        state.setVisible(bool(state_label))
 
         body = QLabel(content)
         body.setWordWrap(True)
         body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         body.setObjectName("message-card-body")
 
-        bubble_layout.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch(1)
+        title_row.addWidget(state)
+
+        bubble_layout.addLayout(title_row)
         bubble_layout.addWidget(body)
 
         if role == "user":
@@ -247,6 +266,15 @@ class MessageCard(QWidget):
                 color: #5f6b7a;
                 font-size: 12px;
                 font-weight: 600;
+            }
+            QLabel#message-card-state {
+                color: #b45309;
+                background: #fef3c7;
+                border: 1px solid #f59e0b;
+                border-radius: 9px;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 1px 8px;
             }
             QLabel#message-card-body {
                 color: #1f2933;
@@ -1038,9 +1066,15 @@ class MainWindow(QMainWindow):
         content: str,
         *,
         timestamp: str = "刚刚",
+        state_label: str = "",
     ) -> QListWidgetItem:
         item = QListWidgetItem()
-        widget = MessageCard(role=role, content=content, timestamp=timestamp)
+        widget = MessageCard(
+            role=role,
+            content=content,
+            timestamp=timestamp,
+            state_label=state_label,
+        )
         item.setSizeHint(widget.sizeHint())
         self.message_list.addItem(item)
         self.message_list.setItemWidget(item, widget)
@@ -1055,8 +1089,14 @@ class MainWindow(QMainWindow):
         role: str,
         content: str,
         timestamp: str = "刚刚",
+        state_label: str = "",
     ) -> None:
-        widget = MessageCard(role=role, content=content, timestamp=timestamp)
+        widget = MessageCard(
+            role=role,
+            content=content,
+            timestamp=timestamp,
+            state_label=state_label,
+        )
         item.setSizeHint(widget.sizeHint())
         self.message_list.setItemWidget(item, widget)
         self.message_list.scrollToBottom()
@@ -1116,6 +1156,7 @@ class MainWindow(QMainWindow):
                 "assistant",
                 self.pending_message_content,
                 timestamp="处理中",
+                state_label="输入中",
             )
         else:
             self.pending_message_item = None
@@ -1146,6 +1187,7 @@ class MainWindow(QMainWindow):
             role="assistant",
             content="请求耗时较长，仍在等待模型返回，请稍候...",
             timestamp="处理中",
+            state_label="输入中",
         )
         self.pending_message_content = "请求耗时较长，仍在等待模型返回，请稍候..."
         self._set_status_message("请求耗时较长")
@@ -1158,6 +1200,7 @@ class MainWindow(QMainWindow):
                 "assistant",
                 self.pending_message_content,
                 timestamp="处理中",
+                state_label="输入中",
             )
 
     def on_assistant_stream(self, request_id: int, session_id: int, content: str) -> None:
@@ -1176,6 +1219,7 @@ class MainWindow(QMainWindow):
                 role="assistant",
                 content=self.pending_message_content,
                 timestamp="生成中",
+                state_label="输入中",
             )
         self._set_status_message("正在接收回复")
 

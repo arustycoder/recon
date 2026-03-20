@@ -39,6 +39,7 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - convert stored UTC timestamps into local display time in the desktop UI
 - preserve multi-line structured content
 - insert a temporary assistant placeholder immediately after send
+- show a visible `输入中` state on the pending assistant card until the reply completes
 - replace the placeholder with the real reply or an error message
 - update the same assistant card progressively during streaming
 
