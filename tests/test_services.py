@@ -208,6 +208,33 @@ class AssistantServiceTests(unittest.TestCase):
             "req-abc",
         )
 
+    def test_reply_via_http_uses_backend_detail_when_status_fails(self) -> None:
+        request = httpx.Request("POST", "http://localhost:8000/api/chat")
+        response = httpx.Response(
+            502,
+            request=request,
+            json={"detail": "upstream provider returned 404"},
+        )
+        client = Mock()
+        client.post.return_value = response
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=client)
+        context_manager.__exit__ = Mock(return_value=None)
+
+        with patch("httpx.Client", return_value=context_manager):
+            with self.assertRaises(RuntimeError) as error:
+                self.service._reply_via_http(
+                    api_url="http://localhost:8000/api/chat",
+                    project=self.project,
+                    session=self.session,
+                    recent_messages=[],
+                    user_message="hello",
+                    timeout=10.0,
+                    client_request_id="req-abc",
+                )
+
+        self.assertIn("upstream provider returned 404", str(error.exception))
+
     def test_fetch_gateway_providers_reads_gateway_registry(self) -> None:
         settings = ProviderSettings(
             provider="http_backend",

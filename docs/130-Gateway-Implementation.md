@@ -57,6 +57,7 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
 
 - `POST /api/chat`
   - returns a single normalized reply
+  - converts upstream provider failures into a structured non-500 gateway error response
 - `POST /api/chat/stream`
   - emits SSE events
   - must terminate with structured `error` and `done` events when upstream providers fail
@@ -71,3 +72,4 @@ Add a first runnable gateway skeleton so DarkFactory can evolve from direct desk
 - configuration should allow env-driven provider definitions so the skeleton is immediately testable
 - gateway orchestration should depend on a gateway adapter boundary, even if the default adapter still reuses desktop provider code
 - a broken upstream provider stream must never tear down the HTTP response body without an explicit SSE terminal event
+- the synchronous chat endpoint should preserve useful upstream error detail instead of surfacing a generic internal server error

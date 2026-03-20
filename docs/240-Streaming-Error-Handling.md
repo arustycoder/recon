@@ -11,6 +11,7 @@ Make direct provider streaming and gateway SSE streaming resilient enough that u
 - normalize OpenAI-compatible streaming failures into clearer application errors
 - retry once with a non-stream request when a provider fails before the first streamed chunk
 - make gateway `POST /api/chat/stream` end with structured SSE `error` and `done` events instead of a truncated chunked body
+- make gateway `POST /api/chat` surface upstream provider failures as structured gateway errors instead of opaque 500 responses
 - preserve request persistence and provider error tracking when streaming fails
 
 ### Excluded
@@ -34,6 +35,7 @@ Make direct provider streaming and gateway SSE streaming resilient enough that u
 
 ## API Impact
 
+- `POST /api/chat` should return a gateway-managed error payload and non-500 status when an upstream provider fails
 - gateway SSE consumers should expect:
   - `request`
   - `delta`

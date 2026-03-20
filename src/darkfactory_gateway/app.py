@@ -84,7 +84,12 @@ def create_app(service: GatewayService | None = None) -> FastAPI:
 
     @app.post("/api/chat", response_model=GatewayChatResponse)
     def chat(request: GatewayChatRequest) -> GatewayChatResponse:
-        return gateway.chat(request)
+        try:
+            return gateway.chat(request)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.post("/api/chat/stream")
     def stream(request: GatewayChatRequest) -> StreamingResponse:

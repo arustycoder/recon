@@ -160,6 +160,37 @@ class GatewayAppTests(unittest.TestCase):
         self.assertEqual(body["target"], "mock")
         self.assertIn("【结论】", body["reply"])
 
+    def test_chat_returns_structured_502_when_provider_fails(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="broken",
+                    kind="openai_compatible",
+                    label="Broken",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://broken.invalid/v1",
+                        openai_model="broken-model",
+                    ),
+                    default=True,
+                    priority=1,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "chat-errors.db"),
+            adapter_factory=MappingAdapterFactory(
+                {"openai_compatible": RaisingAdapter(error_text="sync provider failed")}
+            ),
+        )
+        client = TestClient(create_app(service))
+
+        response = client.post("/api/chat", json=sample_request() | {"provider_id": "broken"})
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["detail"], "sync provider failed")
+
     def test_stream_returns_sse_events(self) -> None:
         with self.client.stream("POST", "/api/chat/stream", json=sample_request()) as response:
             content = "".join(response.iter_text())

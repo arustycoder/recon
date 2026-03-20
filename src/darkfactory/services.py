@@ -309,15 +309,42 @@ class AssistantService:
         import httpx
 
         headers = {"X-Client-Request-Id": client_request_id} if client_request_id else {}
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(api_url, json=payload, headers=headers)
-            response.raise_for_status()
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(api_url, json=payload, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = self._extract_http_error_detail(exc.response)
+            raise RuntimeError(
+                f"HTTP backend request failed: {detail or str(exc)}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"HTTP backend request failed: {exc}") from exc
         data = response.json()
         self._apply_usage_metrics(data.get("usage") or {})
         reply = data.get("reply", "").strip()
         if not reply:
             raise ValueError("HTTP assistant response did not contain 'reply'")
         return reply
+
+    def _extract_http_error_detail(self, response) -> str:
+        if response is None:
+            return ""
+        try:
+            data = response.json()
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            detail = data.get("detail")
+            if isinstance(detail, str) and detail.strip():
+                return detail.strip()
+            error = data.get("error")
+            if isinstance(error, str) and error.strip():
+                return error.strip()
+        text = getattr(response, "text", "")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        return ""
 
     def _reply_via_openai_compatible(
         self,
