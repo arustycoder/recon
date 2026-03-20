@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -17,7 +16,14 @@ if str(SRC) not in sys.path:
 
 from darkfactory.models import ProviderSettings
 from darkfactory.storage import Storage
-from darkfactory_gateway.adapters import GatewayAdapterFactory, GatewayProviderAdapter
+from darkfactory_gateway.adapters import (
+    GatewayAdapterFactory,
+    GatewayProviderAdapter,
+    HttpBackendGatewayAdapter,
+    MockGatewayAdapter,
+    OllamaGatewayAdapter,
+    OpenAICompatibleGatewayAdapter,
+)
 from darkfactory_gateway.app import create_app
 from darkfactory_gateway.models import GatewayChatRequest
 from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
@@ -92,6 +98,34 @@ class FakeAdapterFactory(GatewayAdapterFactory):
 
     def create(self, settings: ProviderSettings) -> GatewayProviderAdapter:
         return self.adapter
+
+
+class MappingAdapterFactory(GatewayAdapterFactory):
+    def __init__(self, adapters: dict[str, GatewayProviderAdapter]) -> None:
+        self.adapters = adapters
+
+    def create(self, settings: ProviderSettings) -> GatewayProviderAdapter:
+        key = settings.provider or "mock"
+        return self.adapters[key]
+
+
+@dataclass
+class RaisingAdapter(FakeAdapter):
+    error_text: str = "adapter failed"
+
+    def stream_reply(self, **kwargs):
+        raise RuntimeError(self.error_text)
+        yield ""
+
+
+@dataclass
+class CapturingAdapter(FakeAdapter):
+    captured: dict[str, str] | None = None
+
+    def stream_reply(self, **kwargs):
+        if self.captured is not None:
+            self.captured["user_message"] = kwargs["user_message"]
+        yield self.reply_text
 
 
 class GatewayAppTests(unittest.TestCase):
@@ -214,21 +248,20 @@ class GatewayAppTests(unittest.TestCase):
         service = GatewayService(
             provider_registry=registry,
             storage=Storage(db_path=Path(self.temp_dir.name) / "fallback.db"),
+            adapter_factory=MappingAdapterFactory(
+                {
+                    "openai_compatible": RaisingAdapter(error_text="broken provider"),
+                    "mock": FakeAdapter(reply_text="fallback reply"),
+                }
+            ),
         )
 
-        def fake_stream_reply(self, **kwargs):
-            settings = kwargs["settings"]
-            if settings.provider == "openai_compatible":
-                raise RuntimeError("broken provider")
-            yield "fallback reply"
-
-        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
-            response = service.chat(
-                service_request(
-                    provider_id=None,
-                    provider_strategy="fallback",
-                )
+        response = service.chat(
+            service_request(
+                provider_id=None,
+                provider_strategy="fallback",
             )
+        )
 
         self.assertEqual(response.provider_id, "mock")
         self.assertEqual(response.attempted_provider_ids, ["broken", "mock"])
@@ -246,24 +279,19 @@ class GatewayAppTests(unittest.TestCase):
                 )
             ]
         )
+        captured: dict[str, str] = {}
         service = GatewayService(
             skill_registry=registry,
             storage=Storage(db_path=Path(self.temp_dir.name) / "skills.db"),
+            adapter_factory=FakeAdapterFactory(CapturingAdapter(reply_text="ok", captured=captured)),
         )
-        captured: dict[str, str] = {}
-
-        def fake_stream_reply(self, **kwargs):
-            captured["user_message"] = kwargs["user_message"]
-            yield "ok"
-
-        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
-            service.chat(
-                service_request(
-                    skill_ids=["custom"],
-                    skill_mode="request_only",
-                    skill_arguments={"custom": {"style": "激进"}},
-                )
+        service.chat(
+            service_request(
+                skill_ids=["custom"],
+                skill_mode="request_only",
+                skill_arguments={"custom": {"style": "激进"}},
             )
+        )
 
         user_message = captured["user_message"]
         self.assertIn("[custom] 输出风格为 激进，项目是 测试项目。", user_message)
@@ -284,18 +312,15 @@ class GatewayAppTests(unittest.TestCase):
         service = GatewayService(
             skill_registry=registry,
             storage=Storage(db_path=Path(self.temp_dir.name) / "post.db"),
+            adapter_factory=FakeAdapterFactory(FakeAdapter(reply_text="原始回复")),
         )
 
-        def fake_stream_reply(self, **kwargs):
-            yield "原始回复"
-
-        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
-            response = service.chat(
-                service_request(
-                    skill_ids=["final_wrap"],
-                    skill_mode="request_only",
-                )
+        response = service.chat(
+            service_request(
+                skill_ids=["final_wrap"],
+                skill_mode="request_only",
             )
+        )
 
         self.assertIn("【最终输出】", response.reply)
         self.assertIn("原始回复", response.reply)
@@ -322,18 +347,16 @@ class GatewayAppTests(unittest.TestCase):
         service = GatewayService(
             provider_registry=registry,
             storage=Storage(db_path=Path(self.temp_dir.name) / "cooldown.db"),
+            adapter_factory=MappingAdapterFactory(
+                {"openai_compatible": RaisingAdapter(error_text="provider failed")}
+            ),
         )
 
-        def fake_stream_reply(self, **kwargs):
-            raise RuntimeError("provider failed")
-            yield ""
+        with self.assertRaises(RuntimeError):
+            service.chat(service_request(provider_id="fragile", provider_strategy="default"))
 
-        with patch("darkfactory_gateway.adapters.AssistantService.stream_reply", fake_stream_reply):
-            with self.assertRaises(RuntimeError):
-                service.chat(service_request(provider_id="fragile", provider_strategy="default"))
-
-            with self.assertRaises(RuntimeError) as second_error:
-                service.chat(service_request(provider_id="fragile", provider_strategy="default"))
+        with self.assertRaises(RuntimeError) as second_error:
+            service.chat(service_request(provider_id="fragile", provider_strategy="default"))
 
         self.assertIn("cooling down", str(second_error.exception))
         health = service.provider_health("fragile")
@@ -419,6 +442,42 @@ class GatewayAppTests(unittest.TestCase):
         self.assertAlmostEqual(response.estimated_cost_usd, 0.00028)
         self.assertEqual(request_info.target, "adapter-target")
         self.assertEqual(request_info.total_tokens, 200)
+
+    def test_adapter_factory_returns_provider_specific_adapters(self) -> None:
+        factory = GatewayAdapterFactory()
+
+        self.assertIsInstance(
+            factory.create(ProviderSettings(provider="mock")),
+            MockGatewayAdapter,
+        )
+        self.assertIsInstance(
+            factory.create(
+                ProviderSettings(
+                    provider="ollama",
+                    ollama_model="qwen2.5:latest",
+                )
+            ),
+            OllamaGatewayAdapter,
+        )
+        self.assertIsInstance(
+            factory.create(
+                ProviderSettings(
+                    provider="openai_compatible",
+                    openai_base_url="http://localhost:8000/v1",
+                    openai_model="demo",
+                )
+            ),
+            OpenAICompatibleGatewayAdapter,
+        )
+        self.assertIsInstance(
+            factory.create(
+                ProviderSettings(
+                    provider="http_backend",
+                    api_url="http://localhost:8000/api/chat",
+                )
+            ),
+            HttpBackendGatewayAdapter,
+        )
 
 
 def service_request(**updates):
