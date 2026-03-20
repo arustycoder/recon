@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from time import perf_counter
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal
@@ -51,6 +52,19 @@ ROLE_LABELS = {
 }
 
 GENERIC_SESSION_NAMES = {"默认对话", "新对话", "默认会话", "新会话"}
+
+
+def format_local_timestamp(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return value
+    for parser in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            parsed = datetime.strptime(text, parser).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    return value
 
 
 @dataclass(slots=True)
@@ -557,7 +571,7 @@ class RequestLogDialog(QDialog):
                 session_label = session.name if session is not None else str(entry.session_id)
             item = QTreeWidgetItem(
                 [
-                    entry.created_at,
+                    format_local_timestamp(entry.created_at),
                     session_label,
                     entry.provider,
                     entry.model,
@@ -971,7 +985,11 @@ class MainWindow(QMainWindow):
 
         self.message_list.clear()
         for message in self.storage.list_messages(session.id):
-            self.append_message(message.role, message.content, timestamp=message.created_at)
+            self.append_message(
+                message.role,
+                message.content,
+                timestamp=format_local_timestamp(message.created_at),
+            )
         if self.pending_session_id == session.id and self.pending_message_item is None:
             self.pending_message_item = self.append_message(
                 "assistant",

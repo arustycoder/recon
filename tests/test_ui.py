@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from unittest.mock import patch
@@ -28,6 +29,7 @@ from darkfactory.ui import (
     RequestLogDialog,
     WorkerResult,
     create_application,
+    format_local_timestamp,
 )
 
 
@@ -174,8 +176,21 @@ class MainWindowTests(unittest.TestCase):
 
         dialog = RequestLogDialog(self.storage)
         self.assertEqual(dialog.log_tree.topLevelItemCount(), 1)
+        self.assertEqual(
+            dialog.log_tree.topLevelItem(0).text(0),
+            format_local_timestamp(self.storage.list_request_logs()[0].created_at),
+        )
         self.assertEqual(dialog.log_tree.topLevelItem(0).text(2), "mock")
         dialog.close()
+
+    def test_format_local_timestamp_converts_utc_storage_time(self) -> None:
+        expected = (
+            datetime.strptime("2026-03-20 00:00:00", "%Y-%m-%d %H:%M:%S")
+            .replace(tzinfo=timezone.utc)
+            .astimezone()
+            .strftime("%Y-%m-%d %H:%M:%S")
+        )
+        self.assertEqual(format_local_timestamp("2026-03-20 00:00:00"), expected)
 
     def test_request_log_dialog_filters_and_clears(self) -> None:
         self.assertIsNotNone(self.window.current_session)

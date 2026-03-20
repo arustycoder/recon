@@ -36,6 +36,7 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - render messages as styled widgets rather than plain list rows
 - distinguish user and assistant alignment
 - show role label and timestamp
+- convert stored UTC timestamps into local display time in the desktop UI
 - preserve multi-line structured content
 - insert a temporary assistant placeholder immediately after send
 - replace the placeholder with the real reply or an error message
