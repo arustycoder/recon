@@ -1247,7 +1247,7 @@ class MainWindow(QMainWindow):
         painter.setBrush(QBrush(QColor("#000000")))
         painter.drawEllipse(QRectF(2, 2, 16, 16))
         painter.setBrush(QBrush(QColor("#ffffff")))
-        painter.drawRect(QRectF(7, 7, 6, 6))
+        painter.drawRect(QRectF(6, 6, 8, 8))
         painter.end()
         return QIcon(pixmap)
 
