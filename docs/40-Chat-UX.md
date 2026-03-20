@@ -29,7 +29,7 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 
 - show a dedicated empty state when no conversation is active
 - explain what the user should do next
-- keep quick actions visible only when a session is active
+- keep scenario actions available in the left column without crowding the input area
 
 ### Message Rendering
 

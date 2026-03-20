@@ -141,6 +141,25 @@ class MainWindowTests(unittest.TestCase):
         self.assertIn("第一段回复", self.message_body_text(self.window.message_list.count() - 1))
         self.assertIn("正在接收回复", self.window.statusBar().currentMessage())
 
+    def test_scene_library_populates_prompt_on_click(self) -> None:
+        category_item = self.window.scene_tree.topLevelItem(0)
+        self.assertIsNotNone(category_item)
+        scene_item = category_item.child(0)
+
+        self.window.on_scene_item_clicked(scene_item, 0)
+
+        self.assertIn("分析蒸汽不足", self.window.input_line.text())
+
+    def test_scene_library_activation_uses_send_flow(self) -> None:
+        category_item = self.window.scene_tree.topLevelItem(0)
+        scene_item = category_item.child(0)
+
+        with patch.object(self.window, "send_current_input") as send_mock:
+            self.window.on_scene_item_activated(scene_item, 0)
+
+        send_mock.assert_called_once()
+        self.assertIn("分析蒸汽不足", self.window.input_line.text())
+
     def test_cancel_active_request_writes_cancel_message_and_log(self) -> None:
         self.assertIsNotNone(self.window.current_session)
         session_id = self.window.current_session.id
@@ -287,6 +306,12 @@ class MainWindowTests(unittest.TestCase):
 
         reset_mock.assert_called_once_with("fragile", settings)
         dialog.close()
+
+    def test_scene_library_disabled_without_session(self) -> None:
+        self.window.current_session = None
+        self.window.update_interaction_state()
+
+        self.assertFalse(self.window.scene_tree.isEnabled())
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Each `Project` contains multiple conversation `Session` items
 - Right side shows structured domain dialogue
 - Bottom area provides quick actions and message input
+- Left column includes a scenario library for scalable prompt templates
 - Output is domain-specific and structured, not general chat
 
 ## 3. MVP Scope
@@ -138,10 +139,6 @@ Model / Business Logic / Data Source
 
 - Current project and session info
 - Scrollable message list
-- Three quick buttons in MVP:
-  - `蒸汽不足`
-  - `负荷优化`
-  - `能效诊断`
 - Input box and send button
 
 ### Interaction Rules

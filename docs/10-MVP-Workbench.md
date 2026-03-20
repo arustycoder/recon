@@ -5,9 +5,10 @@
 Deliver the first runnable desktop version of DarkFactory:
 
 - left-side `Project / Session` tree
+- left-side scenario library
 - right-side chat workbench
 - local persistence
-- quick domain prompts
+- scalable domain prompt entry
 - minimal conversation service that works without a backend
 
 ## Scope
@@ -19,7 +20,7 @@ Deliver the first runnable desktop version of DarkFactory:
 - session create / rename / delete
 - local SQLite storage
 - message history loading
-- quick action buttons for domain prompts
+- scenario library for domain prompts
 - assistant service abstraction
 - mock assistant as default fallback
 - local LLM mode for direct desktop-side chat
@@ -41,15 +42,13 @@ Deliver the first runnable desktop version of DarkFactory:
 - shows projects as top-level nodes
 - shows sessions under each project
 - supports basic create / rename / delete operations
+- shows a scenario library under the project tree
+- groups reusable domain prompts by topic
 
 ### Right Panel
 
 - shows current project and current session
 - shows message history for the selected session
-- provides quick buttons:
-  - `蒸汽不足`
-  - `负荷优化`
-  - `能效诊断`
 - allows free-text input
 
 ## Data Model Impact

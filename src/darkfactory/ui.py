@@ -53,6 +53,24 @@ ROLE_LABELS = {
 
 GENERIC_SESSION_NAMES = {"默认对话", "新对话", "默认会话", "新会话"}
 
+SCENARIO_LIBRARY: dict[str, list[tuple[str, str]]] = {
+    "供汽与热力": [
+        ("蒸汽不足", "请结合当前项目背景，分析蒸汽不足的可能原因并给出调整建议。"),
+        ("抽汽冲突", "请分析抽汽需求冲突对当前机组运行的影响，并给出协调建议。"),
+        ("供热波动", "请分析当前供热波动的可能原因、运行约束与调整建议。"),
+    ],
+    "负荷与调度": [
+        ("负荷优化", "请从机组负荷分配角度给出优化建议，并说明约束与风险。"),
+        ("调峰策略", "请结合机组特性分析当前调峰策略，并给出优化建议。"),
+        ("机组切换", "请分析当前机组切换或运行方式调整的风险与注意事项。"),
+    ],
+    "能效与设备": [
+        ("能效诊断", "请按结论、原因分析、优化建议、影响评估输出当前能效诊断。"),
+        ("锅炉分析", "请从锅炉侧分析当前运行工况的效率与风险。"),
+        ("汽机分析", "请从汽机侧分析当前运行工况的效率与风险。"),
+    ],
+}
+
 
 def format_local_timestamp(value: str) -> str:
     text = value.strip()
@@ -773,9 +791,13 @@ class MainWindow(QMainWindow):
         self.message_stack.addWidget(self.empty_state)
         self.message_stack.addWidget(self.message_list)
 
-        self.quick_buttons: list[QPushButton] = []
+        self.scene_tree = QTreeWidget()
+        self.scene_tree.setHeaderHidden(True)
+        self.scene_tree.setRootIsDecorated(True)
+        self.scene_tree.itemActivated.connect(self.on_scene_item_activated)
+        self.scene_tree.itemClicked.connect(self.on_scene_item_clicked)
         self.input_line = QLineEdit()
-        self.input_line.setPlaceholderText("输入运行问题，或点击下方快捷按钮")
+        self.input_line.setPlaceholderText("输入运行问题，或从左侧场景库选择模板")
         self.input_line.returnPressed.connect(self.send_current_input)
 
         self.send_button = QPushButton("发送")
@@ -792,6 +814,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_menu()
+        self.populate_scene_library()
         self.refresh_tree()
         self.auto_select_initial_session()
         self.update_interaction_state()
@@ -825,7 +848,17 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(title)
         layout.addLayout(button_row)
-        layout.addWidget(self.project_tree)
+        layout.addWidget(self.project_tree, stretch=3)
+
+        scene_title = QLabel("场景库")
+        scene_title.setStyleSheet("font-weight: 600; margin-top: 8px;")
+        scene_hint = QLabel("按专题组织常用分析入口，适合放较多快捷模板。")
+        scene_hint.setWordWrap(True)
+        scene_hint.setStyleSheet("color: #5f6b7a; font-size: 12px;")
+
+        layout.addWidget(scene_title)
+        layout.addWidget(scene_hint)
+        layout.addWidget(self.scene_tree, stretch=2)
         return widget
 
     def _build_right_panel(self) -> QWidget:
@@ -837,14 +870,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.session_info)
         layout.addWidget(self.project_meta)
         layout.addWidget(self.message_stack, stretch=1)
-
-        quick_row = QHBoxLayout()
-        for label in ("蒸汽不足", "负荷优化", "能效诊断"):
-            button = QPushButton(label)
-            button.clicked.connect(lambda checked=False, value=label: self.send_quick_prompt(value))
-            self.quick_buttons.append(button)
-            quick_row.addWidget(button)
-        layout.addLayout(quick_row)
 
         input_row = QHBoxLayout()
         input_row.addWidget(self.input_line, stretch=1)
@@ -1071,8 +1096,7 @@ class MainWindow(QMainWindow):
         self.cancel_button.setEnabled(self.is_busy)
         self.new_project_button.setEnabled(not self.is_busy)
         self.new_session_button.setEnabled(self.current_project is not None and not self.is_busy)
-        for button in self.quick_buttons:
-            button.setEnabled(has_session and not self.is_busy)
+        self.scene_tree.setEnabled(has_session and not self.is_busy)
 
     def set_busy(self, busy: bool) -> None:
         self.is_busy = busy
@@ -1381,13 +1405,38 @@ class MainWindow(QMainWindow):
         self.update_message_stack()
         self.update_interaction_state()
 
-    def send_quick_prompt(self, label: str) -> None:
-        quick_prompts = {
-            "蒸汽不足": "请结合当前项目背景，分析蒸汽不足的可能原因并给出调整建议。",
-            "负荷优化": "请从机组负荷分配角度给出优化建议，并说明约束与风险。",
-            "能效诊断": "请按结论、原因分析、优化建议、影响评估输出当前能效诊断。",
-        }
-        self.input_line.setText(quick_prompts[label])
+    def populate_scene_library(self) -> None:
+        self.scene_tree.clear()
+        for category, scenes in SCENARIO_LIBRARY.items():
+            category_item = QTreeWidgetItem([category])
+            category_item.setFlags(
+                category_item.flags() & ~Qt.ItemFlag.ItemIsSelectable
+            )
+            self.scene_tree.addTopLevelItem(category_item)
+            for label, prompt in scenes:
+                scene_item = QTreeWidgetItem([label])
+                scene_item.setData(0, Qt.ItemDataRole.UserRole, prompt)
+                category_item.addChild(scene_item)
+            category_item.setExpanded(True)
+
+    def on_scene_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        if item.childCount() > 0:
+            return
+        prompt = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(prompt, str):
+            self.input_line.setText(prompt)
+
+    def on_scene_item_activated(self, item: QTreeWidgetItem, column: int) -> None:
+        if item.childCount() > 0:
+            item.setExpanded(not item.isExpanded())
+            return
+        prompt = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(prompt, str):
+            return
+        self.send_scene_prompt(prompt)
+
+    def send_scene_prompt(self, prompt: str) -> None:
+        self.input_line.setText(prompt)
         self.send_current_input()
 
     def send_current_input(self) -> None:
