@@ -344,13 +344,52 @@ class MainWindowTests(unittest.TestCase):
         self.window.selected_attachments = [file_path]
         self.window.update_attachment_summary()
 
-        self.assertFalse(self.window.attachment_summary.isHidden())
-        self.assertIn("notes.md", self.window.attachment_summary.text())
+        self.assertFalse(self.window.attachment_chip_container.isHidden())
+        chip = self.window.attachment_chip_layout.itemAt(0).widget()
+        self.assertIsNotNone(chip)
+        self.assertEqual(chip.text(), "notes.md")
 
         prompt = self.window.compose_outgoing_message("请分析附件内容", [file_path])
         self.assertIn("【附件】", prompt)
         self.assertIn("内容摘录", prompt)
         self.assertIn("请分析附件内容", prompt)
+
+    def test_remove_single_attachment(self) -> None:
+        first = Path(self.temp_dir.name) / "a.txt"
+        second = Path(self.temp_dir.name) / "b.txt"
+        first.write_text("a", encoding="utf-8")
+        second.write_text("b", encoding="utf-8")
+
+        self.window.add_attachment_paths([str(first), str(second)])
+        self.window.remove_selected_attachment(first)
+
+        self.assertEqual(self.window.selected_attachments, [second.resolve()])
+
+    def test_sent_message_keeps_attachment_cards(self) -> None:
+        self.assertIsNotNone(self.window.current_session)
+        file_path = Path(self.temp_dir.name) / "notes.md"
+        file_path.write_text("第一行\n第二行", encoding="utf-8")
+
+        attachment_id = self.storage.upsert_attachment(
+            path=str(file_path),
+            name=file_path.name,
+            media_type="md",
+            size_bytes=file_path.stat().st_size,
+            excerpt="第一行\n第二行",
+        )
+        self.storage.add_message(
+            self.window.current_session.id,
+            "user",
+            "请查看附件",
+            attachment_ids=[attachment_id],
+        )
+        self.window.load_session(self.window.current_session.id)
+
+        item = self.window.message_list.item(self.window.message_list.count() - 1)
+        widget = self.window.message_list.itemWidget(item)
+        self.assertIsNotNone(widget)
+        labels = [label.text() for label in widget.findChildren(QLabel)]
+        self.assertTrue(any("notes.md" in text for text in labels))
 
     def test_rich_message_rendering_supports_links_and_tables(self) -> None:
         html_content = render_message_content_html(

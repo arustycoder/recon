@@ -224,6 +224,24 @@ def render_message_content_html(content: str) -> str:
     return "".join(pieces)
 
 
+def extract_urls(content: str) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for match in URL_PATTERN.finditer(content):
+        url = match.group("url")
+        if url in seen:
+            continue
+        urls.append(url)
+        seen.add(url)
+    for match in MARKDOWN_LINK_PATTERN.finditer(content):
+        url = match.group(2)
+        if url in seen:
+            continue
+        urls.append(url)
+        seen.add(url)
+    return urls
+
+
 @dataclass(slots=True)
 class TreeRef:
     kind: str
@@ -353,6 +371,7 @@ class MessageCard(QWidget):
         content: str,
         timestamp: str = "刚刚",
         state_label: str = "",
+        attachments: tuple = (),
     ) -> None:
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -380,23 +399,17 @@ class MessageCard(QWidget):
         state.setObjectName("message-card-state")
         state.setVisible(bool(state_label))
 
-        body = QLabel()
-        body.setTextFormat(Qt.TextFormat.RichText)
-        body.setOpenExternalLinks(True)
-        body.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextBrowserInteraction
-            | Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        body.setText(render_message_content_html(content))
-        body.setWordWrap(True)
-        body.setObjectName("message-card-body")
-
         title_row.addWidget(title)
         title_row.addStretch(1)
         title_row.addWidget(state)
 
         bubble_layout.addLayout(title_row)
-        bubble_layout.addWidget(body)
+        for block in self._build_message_blocks(content):
+            bubble_layout.addWidget(block)
+        for attachment in attachments:
+            bubble_layout.addWidget(self._build_attachment_card(attachment))
+        for url in extract_urls(content):
+            bubble_layout.addWidget(self._build_link_card(url))
 
         if role == "user":
             outer_layout.addStretch(1)
@@ -426,6 +439,21 @@ class MessageCard(QWidget):
                 font-size: 13px;
                 line-height: 1.35;
             }
+            QFrame#message-attachment-card, QFrame#message-link-card {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                margin-top: 4px;
+            }
+            QLabel#attachment-title, QLabel#link-title {
+                font-size: 12px;
+                font-weight: 700;
+                color: #111827;
+            }
+            QLabel#attachment-meta, QLabel#link-meta {
+                font-size: 11px;
+                color: #5f6b7a;
+            }
             QFrame#message-card-user {
                 background: #dbeafe;
                 border: 1px solid #93c5fd;
@@ -439,9 +467,140 @@ class MessageCard(QWidget):
             """
         )
 
+    def _build_message_blocks(self, content: str) -> list[QWidget]:
+        blocks: list[QWidget] = []
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+        lines = normalized.split("\n")
+        paragraph: list[str] = []
+        index = 0
+
+        def flush_paragraph() -> None:
+            if not paragraph:
+                return
+            body = QLabel()
+            body.setTextFormat(Qt.TextFormat.RichText)
+            body.setOpenExternalLinks(True)
+            body.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextBrowserInteraction
+                | Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            body.setText("<p>" + "<br>".join(render_inline_rich_text(line) for line in paragraph) + "</p>")
+            body.setWordWrap(True)
+            body.setObjectName("message-card-body")
+            blocks.append(body)
+            paragraph.clear()
+
+        while index < len(lines):
+            line = lines[index]
+            if _is_markdown_table(lines, index):
+                flush_paragraph()
+                table_widget, index = self._build_table_widget(lines, index)
+                blocks.append(table_widget)
+                continue
+            if not line.strip():
+                flush_paragraph()
+                index += 1
+                continue
+            paragraph.append(line)
+            index += 1
+        flush_paragraph()
+        if not blocks:
+            body = QLabel("<p></p>")
+            body.setTextFormat(Qt.TextFormat.RichText)
+            body.setObjectName("message-card-body")
+            blocks.append(body)
+        return blocks
+
+    def _build_table_widget(self, lines: list[str], start: int) -> tuple[QWidget, int]:
+        header = _split_table_row(lines[start])
+        index = start + 2
+        rows: list[list[str]] = []
+        while index < len(lines):
+            line = lines[index]
+            if not line.strip() or "|" not in line:
+                break
+            cells = _split_table_row(line)
+            if len(cells) != len(header):
+                break
+            rows.append(cells)
+            index += 1
+
+        table = QTreeWidget()
+        table.setRootIsDecorated(False)
+        table.setAlternatingRowColors(True)
+        table.setHeaderLabels(header)
+        table.setUniformRowHeights(True)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        table.setMaximumHeight(160)
+        for row in rows:
+            table.addTopLevelItem(QTreeWidgetItem(row))
+        for column in range(table.columnCount()):
+            table.resizeColumnToContents(column)
+        return table, index
+
+    def _build_attachment_card(self, attachment) -> QWidget:
+        card = QFrame()
+        card.setObjectName("message-attachment-card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(2)
+
+        title = QLabel(attachment.name)
+        title.setObjectName("attachment-title")
+        meta = QLabel(
+            f"{attachment.media_type or 'file'} | {attachment.size_bytes} bytes | {attachment.path}"
+        )
+        meta.setObjectName("attachment-meta")
+        meta.setWordWrap(True)
+
+        layout.addWidget(title)
+        layout.addWidget(meta)
+        if attachment.excerpt.strip():
+            excerpt = QLabel(html.escape(attachment.excerpt[:240]).replace("\n", "<br>"))
+            excerpt.setTextFormat(Qt.TextFormat.RichText)
+            excerpt.setWordWrap(True)
+            excerpt.setObjectName("attachment-meta")
+            layout.addWidget(excerpt)
+        link = QLabel(
+            f'<a href="{html.escape(Path(attachment.path).as_uri(), quote=True)}">打开文件</a>'
+        )
+        link.setTextFormat(Qt.TextFormat.RichText)
+        link.setOpenExternalLinks(True)
+        link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        link.setObjectName("attachment-meta")
+        layout.addWidget(link)
+        return card
+
+    def _build_link_card(self, url: str) -> QWidget:
+        card = QFrame()
+        card.setObjectName("message-link-card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(2)
+
+        if url.startswith("file://"):
+            title_text = Path(url.removeprefix("file://")).name or url
+        elif "://" in url:
+            title_text = url.split("/")[2]
+        else:
+            title_text = url
+
+        title = QLabel(title_text)
+        title.setObjectName("link-title")
+        link = QLabel(f'<a href="{html.escape(url, quote=True)}">{html.escape(url)}</a>')
+        link.setTextFormat(Qt.TextFormat.RichText)
+        link.setOpenExternalLinks(True)
+        link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        link.setObjectName("link-meta")
+        layout.addWidget(title)
+        layout.addWidget(link)
+        return card
+
 
 class ChatInput(QTextEdit):
     send_requested = Signal()
+    files_dropped = Signal(list)
 
     def __init__(self) -> None:
         super().__init__()
@@ -472,6 +631,27 @@ class ChatInput(QTextEdit):
                 self.send_requested.emit()
                 return True
         return super().event(event)
+
+    def dragEnterEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        mime = event.mimeData()
+        if mime is not None and mime.hasUrls():
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        mime = event.mimeData()
+        if mime is not None and mime.hasUrls():
+            paths = []
+            for url in mime.urls():
+                local = url.toLocalFile()
+                if local:
+                    paths.append(local)
+            if paths:
+                self.files_dropped.emit(paths)
+                event.acceptProposedAction()
+                return
+        super().dropEvent(event)
 
     def text(self) -> str:
         return self.toPlainText()
@@ -1021,13 +1201,11 @@ class MainWindow(QMainWindow):
         self.attach_button.setToolTip("选择文件")
         self.attach_button.clicked.connect(self.choose_attachments)
 
-        self.attachment_summary = QLabel("")
-        self.attachment_summary.setWordWrap(True)
-        self.attachment_summary.setTextFormat(Qt.TextFormat.RichText)
-        self.attachment_summary.setOpenExternalLinks(True)
-        self.attachment_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        self.attachment_summary.setStyleSheet("color: #5f6b7a; font-size: 12px;")
-        self.attachment_summary.hide()
+        self.attachment_chip_container = QWidget()
+        self.attachment_chip_layout = QHBoxLayout(self.attachment_chip_container)
+        self.attachment_chip_layout.setContentsMargins(0, 0, 0, 0)
+        self.attachment_chip_layout.setSpacing(6)
+        self.attachment_chip_container.hide()
 
         self.clear_attachments_button = QPushButton("清空附件")
         self.clear_attachments_button.clicked.connect(self.clear_selected_attachments)
@@ -1035,6 +1213,7 @@ class MainWindow(QMainWindow):
 
         self.input_line = ChatInput()
         self.input_line.send_requested.connect(self.send_current_input)
+        self.input_line.files_dropped.connect(self.add_attachment_paths)
 
         self.action_button = QPushButton()
         self.action_button.setFixedSize(40, 40)
@@ -1123,7 +1302,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.message_stack, stretch=1)
 
         attachment_row = QHBoxLayout()
-        attachment_row.addWidget(self.attachment_summary, stretch=1)
+        attachment_row.addWidget(self.attachment_chip_container, stretch=1)
         attachment_row.addWidget(self.clear_attachments_button)
         layout.addLayout(attachment_row)
 
@@ -1270,6 +1449,7 @@ class MainWindow(QMainWindow):
                 message.role,
                 message.content,
                 timestamp=format_local_timestamp(message.created_at),
+                attachments=message.attachments,
             )
         if self.pending_session_id == session.id and self.pending_message_item is None:
             self.pending_message_item = self.append_message(
@@ -1295,6 +1475,7 @@ class MainWindow(QMainWindow):
         *,
         timestamp: str = "刚刚",
         state_label: str = "",
+        attachments: tuple = (),
     ) -> QListWidgetItem:
         item = QListWidgetItem()
         widget = MessageCard(
@@ -1302,6 +1483,7 @@ class MainWindow(QMainWindow):
             content=content,
             timestamp=timestamp,
             state_label=state_label,
+            attachments=attachments,
         )
         item.setSizeHint(widget.sizeHint())
         self.message_list.addItem(item)
@@ -1318,12 +1500,14 @@ class MainWindow(QMainWindow):
         content: str,
         timestamp: str = "刚刚",
         state_label: str = "",
+        attachments: tuple = (),
     ) -> None:
         widget = MessageCard(
             role=role,
             content=content,
             timestamp=timestamp,
             state_label=state_label,
+            attachments=attachments,
         )
         item.setSizeHint(widget.sizeHint())
         self.message_list.setItemWidget(item, widget)
@@ -1430,6 +1614,9 @@ class MainWindow(QMainWindow):
         paths, _ = QFileDialog.getOpenFileNames(self, "选择文件")
         if not paths:
             return
+        self.add_attachment_paths(paths)
+
+    def add_attachment_paths(self, paths: list[str]) -> None:
         existing = {path.resolve() for path in self.selected_attachments}
         for raw_path in paths:
             path = Path(raw_path)
@@ -1447,22 +1634,49 @@ class MainWindow(QMainWindow):
         self.selected_attachments.clear()
         self.update_attachment_summary()
 
+    def remove_selected_attachment(self, path: Path) -> None:
+        try:
+            target = path.resolve()
+        except OSError:
+            target = path
+        self.selected_attachments = [item for item in self.selected_attachments if item != target]
+        self.update_attachment_summary()
+
     def update_attachment_summary(self) -> None:
+        while self.attachment_chip_layout.count():
+            item = self.attachment_chip_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
         if not self.selected_attachments:
-            self.attachment_summary.hide()
+            self.attachment_chip_container.hide()
             self.clear_attachments_button.hide()
-            self.attachment_summary.setText("")
             return
-        previews = []
         for path in self.selected_attachments[:MAX_ATTACHMENT_SUMMARY_COUNT]:
-            previews.append(
-                f'<a href="{html.escape(path.as_uri(), quote=True)}">{html.escape(path.name)}</a>'
+            chip = QPushButton(path.name)
+            chip.setToolTip(str(path))
+            chip.setStyleSheet(
+                """
+                QPushButton {
+                    text-align: left;
+                    padding: 4px 10px;
+                    border-radius: 10px;
+                    background: #eef2ff;
+                    border: 1px solid #c7d2fe;
+                }
+                QPushButton:hover {
+                    background: #e0e7ff;
+                }
+                """
             )
-        suffix = ""
+            chip.clicked.connect(lambda _checked=False, attachment_path=path: self.remove_selected_attachment(attachment_path))
+            self.attachment_chip_layout.addWidget(chip)
         if len(self.selected_attachments) > MAX_ATTACHMENT_SUMMARY_COUNT:
-            suffix = f" 等 {len(self.selected_attachments)} 个文件"
-        self.attachment_summary.setText("已选附件：" + "、".join(previews) + suffix)
-        self.attachment_summary.show()
+            extra_label = QLabel(f"等 {len(self.selected_attachments)} 个文件")
+            extra_label.setStyleSheet("color: #5f6b7a; font-size: 12px;")
+            self.attachment_chip_layout.addWidget(extra_label)
+        self.attachment_chip_layout.addStretch(1)
+        self.attachment_chip_container.show()
         self.clear_attachments_button.show()
 
     def build_attachment_prompt(self, attachments: list[Path]) -> str:
@@ -1530,6 +1744,27 @@ class MainWindow(QMainWindow):
         if message.strip():
             parts.append(message.strip())
         return "\n\n".join(parts).strip()
+
+    def persist_attachments(self, attachments: list[Path]) -> list[int]:
+        attachment_ids: list[int] = []
+        for path in attachments:
+            try:
+                stat = path.stat()
+                size_bytes = int(stat.st_size)
+            except OSError:
+                size_bytes = 0
+            media_type = path.suffix.lower().lstrip(".")
+            excerpt = self.read_attachment_excerpt(path)
+            attachment_ids.append(
+                self.storage.upsert_attachment(
+                    path=str(path),
+                    name=path.name,
+                    media_type=media_type,
+                    size_bytes=size_bytes,
+                    excerpt=excerpt,
+                )
+            )
+        return attachment_ids
 
     def start_pending_response(self, request_id: int, session_id: int) -> None:
         self.active_request_id = request_id
@@ -1887,12 +2122,18 @@ class MainWindow(QMainWindow):
         request_id = self.next_request_id()
         provider = self.assistant.provider_name()
         target = self.assistant.target_label()
+        attachment_ids = self.persist_attachments(attachments)
 
         self.apply_auto_session_title(
             session_id,
             message or " ".join(path.name for path in attachments),
         )
-        self.storage.add_message(session_id, "user", outgoing_message)
+        self.storage.add_message(
+            session_id,
+            "user",
+            outgoing_message,
+            attachment_ids=attachment_ids,
+        )
         self.refresh_tree()
         if self.current_session is not None and self.current_session.id == session_id:
             self.load_session(session_id)

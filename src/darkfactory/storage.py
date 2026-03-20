@@ -8,6 +8,7 @@ import json
 
 from .config import DEFAULT_PROVIDER_KEYS
 from .models import (
+    Attachment,
     GatewayRequestRecord,
     Message,
     Project,
@@ -67,6 +68,25 @@ class Storage:
                     content TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    path TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    media_type TEXT NOT NULL DEFAULT '',
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    excerpt TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS message_attachments (
+                    message_id INTEGER NOT NULL,
+                    attachment_id INTEGER NOT NULL,
+                    display_order INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (message_id, attachment_id),
+                    FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                    FOREIGN KEY(attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS app_state (
@@ -345,9 +365,23 @@ class Storage:
                 """,
                 (session_id,),
             ).fetchall()
-        return [Message(**dict(row)) for row in rows]
+            attachments = self._load_message_attachments(connection, [int(row["id"]) for row in rows])
+        messages: list[Message] = []
+        for row in rows:
+            message_id = int(row["id"])
+            payload = dict(row)
+            payload["attachments"] = tuple(attachments.get(message_id, []))
+            messages.append(Message(**payload))
+        return messages
 
-    def add_message(self, session_id: int, role: str, content: str) -> int:
+    def add_message(
+        self,
+        session_id: int,
+        role: str,
+        content: str,
+        *,
+        attachment_ids: list[int] | None = None,
+    ) -> int:
         with self.connect() as connection:
             cursor = connection.execute(
                 """
@@ -356,6 +390,18 @@ class Storage:
                 """,
                 (session_id, role, content),
             )
+            message_id = int(cursor.lastrowid)
+            if attachment_ids:
+                connection.executemany(
+                    """
+                    INSERT OR REPLACE INTO message_attachments (message_id, attachment_id, display_order)
+                    VALUES (?, ?, ?)
+                    """,
+                    [
+                        (message_id, attachment_id, index)
+                        for index, attachment_id in enumerate(attachment_ids)
+                    ],
+                )
             connection.execute(
                 """
                 UPDATE sessions
@@ -364,7 +410,80 @@ class Storage:
                 """,
                 (session_id,),
             )
-            return int(cursor.lastrowid)
+            return message_id
+
+    def upsert_attachment(
+        self,
+        *,
+        path: str,
+        name: str,
+        media_type: str,
+        size_bytes: int,
+        excerpt: str = "",
+    ) -> int:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO attachments (path, name, media_type, size_bytes, excerpt)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    name = excluded.name,
+                    media_type = excluded.media_type,
+                    size_bytes = excluded.size_bytes,
+                    excerpt = excluded.excerpt
+                """,
+                (path, name, media_type, size_bytes, excerpt),
+            )
+            row = connection.execute(
+                "SELECT id FROM attachments WHERE path = ?",
+                (path,),
+            ).fetchone()
+        return int(row["id"])
+
+    def list_message_attachments(self, message_id: int) -> list[Attachment]:
+        with self.connect() as connection:
+            return self._load_message_attachments(connection, [message_id]).get(message_id, [])
+
+    def _load_message_attachments(
+        self,
+        connection: sqlite3.Connection,
+        message_ids: list[int],
+    ) -> dict[int, list[Attachment]]:
+        if not message_ids:
+            return {}
+        placeholders = ",".join("?" for _ in message_ids)
+        rows = connection.execute(
+            f"""
+            SELECT
+                ma.message_id,
+                a.id,
+                a.path,
+                a.name,
+                a.media_type,
+                a.size_bytes,
+                a.excerpt,
+                a.created_at
+            FROM message_attachments ma
+            JOIN attachments a ON a.id = ma.attachment_id
+            WHERE ma.message_id IN ({placeholders})
+            ORDER BY ma.message_id ASC, ma.display_order ASC, a.id ASC
+            """,
+            tuple(message_ids),
+        ).fetchall()
+        attachments: dict[int, list[Attachment]] = {}
+        for row in rows:
+            attachments.setdefault(int(row["message_id"]), []).append(
+                Attachment(
+                    id=int(row["id"]),
+                    path=str(row["path"]),
+                    name=str(row["name"]),
+                    media_type=str(row["media_type"]),
+                    size_bytes=int(row["size_bytes"]),
+                    excerpt=str(row["excerpt"]),
+                    created_at=str(row["created_at"]),
+                )
+            )
+        return attachments
 
     def get_state(self, key: str) -> str | None:
         with self.connect() as connection:

@@ -29,6 +29,18 @@ class Message:
     role: str
     content: str
     created_at: str
+    attachments: tuple["Attachment", ...] = ()
+
+
+@dataclass(slots=True)
+class Attachment:
+    id: int
+    path: str
+    name: str
+    media_type: str
+    size_bytes: int
+    excerpt: str
+    created_at: str
 
 
 @dataclass(slots=True)

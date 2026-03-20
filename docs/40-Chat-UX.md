@@ -48,6 +48,8 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 - default state is an upward send icon, and the in-flight state switches to a custom coin-like stop icon with a black outer circle and white square center
 - add a plus-button on the left side of the composer for selecting local files
 - show selected files above the input area before send
+- allow removing a single selected attachment before send
+- allow dragging files into the composer
 - render links and markdown tables more clearly inside message cards
 
 ### Context Area

@@ -45,6 +45,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Stable streaming error handling for direct providers and gateway SSE responses
 - Gateway error taxonomy, sync/stream parity, and provider-specific resilience rules
 - Desktop attachment picker and richer message rendering for files, links, and tables
+- Persistent desktop-side attachment model and richer block-based message rendering
 - Windows installer packaging requirement
 
 ### Excluded
@@ -197,6 +198,7 @@ Model / Business Logic / Data Source
 - Persist normalized gateway `error_type` values and expose them in provider health and request summaries
 - Introduce typed gateway provider errors and a first shared retry/cooldown policy table
 - Add a desktop attachment picker and richer message rendering for links and markdown tables
+- Persist desktop attachments and render them as first-class message blocks
 
 ### Phase 5: Domainization
 

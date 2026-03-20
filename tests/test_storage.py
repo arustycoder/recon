@@ -37,6 +37,32 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(sessions[0].name, "测试对话")
             self.assertEqual([message.role for message in messages], ["user", "assistant"])
 
+    def test_message_attachment_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "darkfactory.db"
+            storage = Storage(db_path=db_path)
+
+            project_id = storage.create_project("测试项目")
+            session_id = storage.create_session(project_id, "测试对话")
+            attachment_id = storage.upsert_attachment(
+                path=str(Path(temp_dir) / "report.csv"),
+                name="report.csv",
+                media_type="csv",
+                size_bytes=128,
+                excerpt="a,b\n1,2",
+            )
+            storage.add_message(
+                session_id,
+                "user",
+                "请分析附件",
+                attachment_ids=[attachment_id],
+            )
+
+            messages = storage.list_messages(session_id)
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(len(messages[0].attachments), 1)
+            self.assertEqual(messages[0].attachments[0].name, "report.csv")
+
     def test_app_state_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "darkfactory.db"
