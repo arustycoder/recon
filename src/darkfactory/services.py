@@ -392,27 +392,39 @@ class AssistantService:
 
         endpoint = base_url.rstrip("/") + "/chat/completions"
         collected_parts: list[str] = []
-        with httpx.Client(timeout=timeout) as client:
-            with client.stream("POST", endpoint, json=payload, headers=headers) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    stripped = line.strip()
-                    if not stripped.startswith("data:"):
-                        continue
-                    data_line = stripped[5:].strip()
-                    if data_line == "[DONE]":
-                        break
-                    try:
-                        chunk_payload = json.loads(data_line)
-                    except json.JSONDecodeError:
-                        continue
-                    self._apply_usage_metrics(chunk_payload.get("usage") or {})
-                    text = self._extract_openai_stream_text(chunk_payload)
-                    if text:
-                        collected_parts.append(text)
-                        yield text
+        stream_transport_error: Exception | None = None
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                with client.stream("POST", endpoint, json=payload, headers=headers) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        stripped = line.strip()
+                        if not stripped.startswith("data:"):
+                            continue
+                        data_line = stripped[5:].strip()
+                        if data_line == "[DONE]":
+                            break
+                        try:
+                            chunk_payload = json.loads(data_line)
+                        except json.JSONDecodeError:
+                            continue
+                        self._apply_usage_metrics(chunk_payload.get("usage") or {})
+                        text = self._extract_openai_stream_text(chunk_payload)
+                        if text:
+                            collected_parts.append(text)
+                            yield text
+        except (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError) as exc:
+            if collected_parts:
+                raise RuntimeError(
+                    "Provider streaming connection closed before the response completed."
+                ) from exc
+            stream_transport_error = exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"OpenAI-compatible streaming request failed: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"OpenAI-compatible streaming request failed: {exc}") from exc
 
         if collected_parts:
             return
@@ -421,9 +433,17 @@ class AssistantService:
             "model": model,
             "messages": messages,
         }
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(endpoint, json=fallback_payload, headers=headers)
-            response.raise_for_status()
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(endpoint, json=fallback_payload, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            if stream_transport_error is not None:
+                raise RuntimeError(
+                    "Provider streaming request ended early and the fallback non-stream "
+                    f"request also failed: {exc}"
+                ) from exc
+            raise RuntimeError(f"OpenAI-compatible fallback request failed: {exc}") from exc
         data = response.json()
         self._last_metrics.stream_mode = "single"
         self._apply_usage_metrics(data.get("usage") or {})

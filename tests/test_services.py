@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import httpx
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -245,6 +247,119 @@ class AssistantServiceTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "reset")
         self.assertTrue(client.post.call_args.args[0].endswith("/api/providers/mock/reset"))
+
+    def test_stream_via_openai_compatible_falls_back_to_single_after_early_disconnect(self) -> None:
+        class BrokenStreamResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_lines(self):
+                raise httpx.RemoteProtocolError("peer closed connection without sending complete message body")
+                yield ""
+
+        class ResponseContext:
+            def __init__(self, response) -> None:
+                self._response = response
+
+            def __enter__(self):
+                return self._response
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+        class FallbackResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "fallback reply",
+                            }
+                        }
+                    ]
+                }
+
+        class FakeClient:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def stream(self, *args, **kwargs):
+                return ResponseContext(BrokenStreamResponse())
+
+            def post(self, *args, **kwargs):
+                return FallbackResponse()
+
+        with patch("httpx.Client", return_value=FakeClient()):
+            chunks = list(
+                self.service._stream_via_openai_compatible(
+                    base_url="http://localhost:8000/v1",
+                    api_key="secret",
+                    model="demo-model",
+                    project=self.project,
+                    session=self.session,
+                    recent_messages=[],
+                    user_message="hello",
+                    timeout=10.0,
+                    client_request_id="req-123",
+                )
+            )
+
+        self.assertEqual(chunks, ["fallback reply"])
+        self.assertEqual(self.service.last_response_metrics().stream_mode, "single")
+
+    def test_stream_via_openai_compatible_normalizes_partial_disconnect_error(self) -> None:
+        class BrokenStreamResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_lines(self):
+                yield 'data: {"choices":[{"delta":{"content":"hello"}}]}'
+                raise httpx.RemoteProtocolError("peer closed connection without sending complete message body")
+
+        class ResponseContext:
+            def __init__(self, response) -> None:
+                self._response = response
+
+            def __enter__(self):
+                return self._response
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+        class FakeClient:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def stream(self, *args, **kwargs):
+                return ResponseContext(BrokenStreamResponse())
+
+        with patch("httpx.Client", return_value=FakeClient()):
+            with self.assertRaises(RuntimeError) as error:
+                list(
+                    self.service._stream_via_openai_compatible(
+                        base_url="http://localhost:8000/v1",
+                        api_key="secret",
+                        model="demo-model",
+                        project=self.project,
+                        session=self.session,
+                        recent_messages=[],
+                        user_message="hello",
+                        timeout=10.0,
+                        client_request_id="req-123",
+                    )
+                )
+
+        self.assertIn("closed before the response completed", str(error.exception))
+        self.assertNotIn("incomplete chunked read", str(error.exception).lower())
 
 
 if __name__ == "__main__":

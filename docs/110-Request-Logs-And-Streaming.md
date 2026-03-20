@@ -14,6 +14,7 @@ Improve operator confidence and chat responsiveness by adding:
 - read-only request log viewer backed by local SQLite records
 - streaming assistant output in the existing message list
 - graceful fallback to non-streaming behavior when a provider does not support streaming
+- graceful fallback or normalized failure handling when a provider closes the stream early or times out before the first chunk
 - cancellation that ignores late streaming chunks and final replies
 
 ### Excluded
@@ -50,6 +51,8 @@ Improve operator confidence and chat responsiveness by adding:
 ## Provider Impact
 
 - OpenAI-compatible and Ollama paths should prefer streaming requests when possible
+- if an OpenAI-compatible stream breaks before the first chunk, retry once with a non-stream request
+- if a stream breaks after partial output, raise a normalized provider error instead of surfacing a raw chunked-read exception
 - HTTP backend remains non-streaming in the current phase unless the custom backend already returns compatible chunks
 - mock mode may simulate a short streaming sequence for UX consistency
 
@@ -60,3 +63,4 @@ Improve operator confidence and chat responsiveness by adding:
 - treat streamed content as transient until the request completes successfully
 - write one final request log record per completed, errored, or canceled request
 - when token usage is reported by the provider, persist it alongside the request log
+- avoid leaking low-level transport errors such as incomplete chunked reads directly into the user-facing UI

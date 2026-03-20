@@ -169,6 +169,46 @@ class GatewayAppTests(unittest.TestCase):
         self.assertIn('"type": "delta"', content)
         self.assertIn('"type": "done"', content)
 
+    def test_stream_returns_error_and_done_events_on_provider_failure(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="broken",
+                    kind="openai_compatible",
+                    label="Broken",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://broken.invalid/v1",
+                        openai_model="broken-model",
+                    ),
+                    default=True,
+                    priority=1,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "stream-errors.db"),
+            adapter_factory=MappingAdapterFactory(
+                {"openai_compatible": RaisingAdapter(error_text="stream provider failed")}
+            ),
+        )
+        client = TestClient(create_app(service))
+
+        with client.stream(
+            "POST",
+            "/api/chat/stream",
+            json=sample_request() | {"provider_id": "broken"},
+        ) as response:
+            content = "".join(response.iter_text())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('"type": "request"', content)
+        self.assertIn('"type": "error"', content)
+        self.assertIn('"type": "done"', content)
+        self.assertIn('"status": "error"', content)
+        self.assertIn("stream provider failed", content)
+
     def test_provider_health_endpoint(self) -> None:
         response = self.client.get("/api/providers/mock/health")
 

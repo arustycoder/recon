@@ -539,7 +539,14 @@ class GatewayService:
                     )
                     self._persist_request_state(request_id)
                     if request.provider_strategy != "fallback":
-                        raise RuntimeError(detail)
+                        yield from self._stream_terminal_error(
+                            request_id=request_id,
+                            client_request_id=request.client_request_id,
+                            provider_id=provider.id,
+                            attempted_provider_ids=attempted_provider_ids,
+                            detail=detail,
+                        )
+                        return
                     yield self._sse(
                         {
                             "type": "provider_error",
@@ -560,7 +567,14 @@ class GatewayService:
                     )
                     self._persist_request_state(request_id)
                     if request.provider_strategy != "fallback":
-                        raise RuntimeError(detail)
+                        yield from self._stream_terminal_error(
+                            request_id=request_id,
+                            client_request_id=request.client_request_id,
+                            provider_id=provider.id,
+                            attempted_provider_ids=attempted_provider_ids,
+                            detail=detail,
+                        )
+                        return
                     yield self._sse(
                         {
                             "type": "provider_error",
@@ -597,6 +611,16 @@ class GatewayService:
                     ):
                         if self.request_tracker.is_canceled(request_id):
                             yield self._sse({"type": "canceled", "request_id": request_id})
+                            yield self._sse(
+                                {
+                                    "type": "done",
+                                    "request_id": request_id,
+                                    "client_request_id": request.client_request_id,
+                                    "provider_id": provider.id,
+                                    "attempted_provider_ids": attempted_provider_ids,
+                                    "status": "canceled",
+                                }
+                            )
                             return
                         if not chunk:
                             continue
@@ -640,6 +664,7 @@ class GatewayService:
                             "client_request_id": request.client_request_id,
                             "provider_id": provider.id,
                             "attempted_provider_ids": attempted_provider_ids,
+                            "status": "completed",
                         }
                     )
                     self._record_provider_success(provider.id)
@@ -660,7 +685,14 @@ class GatewayService:
                     )
                     self._persist_request_state(request_id)
                     if request.provider_strategy != "fallback":
-                        raise
+                        yield from self._stream_terminal_error(
+                            request_id=request_id,
+                            client_request_id=request.client_request_id,
+                            provider_id=provider.id,
+                            attempted_provider_ids=attempted_provider_ids,
+                            detail=str(exc),
+                        )
+                        return
                     yield self._sse(
                         {
                             "type": "provider_error",
@@ -669,7 +701,14 @@ class GatewayService:
                             "detail": str(exc),
                         }
                     )
-            raise RuntimeError("All configured providers failed for the request")
+            yield from self._stream_terminal_error(
+                request_id=request_id,
+                client_request_id=request.client_request_id,
+                provider_id="",
+                attempted_provider_ids=attempted_provider_ids,
+                detail="All configured providers failed for the request",
+            )
+            return
         finally:
             self.request_tracker.complete(request_id)
 
@@ -920,6 +959,37 @@ class GatewayService:
         if not sequence:
             return 0
         return int(sum(sequence) / len(sequence))
+
+    def _stream_terminal_error(
+        self,
+        *,
+        request_id: str,
+        client_request_id: str,
+        provider_id: str,
+        attempted_provider_ids: list[str],
+        detail: str,
+    ) -> Iterator[str]:
+        yield self._sse(
+            {
+                "type": "error",
+                "request_id": request_id,
+                "client_request_id": client_request_id,
+                "provider_id": provider_id,
+                "attempted_provider_ids": attempted_provider_ids,
+                "detail": detail,
+                "status": "error",
+            }
+        )
+        yield self._sse(
+            {
+                "type": "done",
+                "request_id": request_id,
+                "client_request_id": client_request_id,
+                "provider_id": provider_id,
+                "attempted_provider_ids": attempted_provider_ids,
+                "status": "error",
+            }
+        )
 
     def _sse(self, data: dict[str, object]) -> str:
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
