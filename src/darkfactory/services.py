@@ -346,6 +346,10 @@ class AssistantService:
             return text.strip()
         return ""
 
+    def _is_partial_stream_disconnect_detail(self, detail: str) -> bool:
+        text = detail.lower()
+        return "streaming connection closed before the response completed" in text
+
     def _reply_via_openai_compatible(
         self,
         *,
@@ -364,8 +368,24 @@ class AssistantService:
         if not model:
             raise ValueError("OpenAI-compatible provider requires model")
 
-        return "".join(
-            self._stream_via_openai_compatible(
+        try:
+            return "".join(
+                self._stream_via_openai_compatible(
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    project=project,
+                    session=session,
+                    recent_messages=recent_messages,
+                    user_message=user_message,
+                    timeout=timeout,
+                    client_request_id=client_request_id,
+                )
+            )
+        except RuntimeError as exc:
+            if not self._is_partial_stream_disconnect_detail(str(exc)):
+                raise
+            return self._request_openai_compatible_non_stream(
                 base_url=base_url,
                 api_key=api_key,
                 model=model,
@@ -376,7 +396,6 @@ class AssistantService:
                 timeout=timeout,
                 client_request_id=client_request_id,
             )
-        )
 
     def _stream_via_openai_compatible(
         self,
@@ -456,20 +475,65 @@ class AssistantService:
         if collected_parts:
             return
 
-        fallback_payload = {
-            "model": model,
-            "messages": messages,
-        }
         try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.post(endpoint, json=fallback_payload, headers=headers)
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
+            text = self._request_openai_compatible_non_stream(
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                project=project,
+                session=session,
+                recent_messages=recent_messages,
+                user_message=user_message,
+                timeout=timeout,
+                client_request_id=client_request_id,
+            )
+        except RuntimeError as exc:
             if stream_transport_error is not None:
                 raise RuntimeError(
                     "Provider streaming request ended early and the fallback non-stream "
                     f"request also failed: {exc}"
                 ) from exc
+            raise
+        yield text
+
+    def _request_openai_compatible_non_stream(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+        timeout: float,
+        client_request_id: str,
+    ) -> str:
+        import httpx
+
+        messages = self._build_provider_messages(
+            project=project,
+            session=session,
+            recent_messages=recent_messages,
+            user_message=user_message,
+        )
+
+        payload = {
+            "model": model,
+            "messages": messages,
+        }
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        if client_request_id:
+            headers["X-Client-Request-Id"] = client_request_id
+        endpoint = base_url.rstrip("/") + "/chat/completions"
+
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(endpoint, json=payload, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
             raise RuntimeError(f"OpenAI-compatible fallback request failed: {exc}") from exc
         data = response.json()
         self._last_metrics.stream_mode = "single"
@@ -477,7 +541,7 @@ class AssistantService:
         text = self._extract_openai_response_text(data)
         if not text:
             raise ValueError("OpenAI-compatible response did not contain assistant text")
-        yield text
+        return text
 
     def _apply_usage_metrics(self, usage: dict) -> None:
         if not isinstance(usage, dict):

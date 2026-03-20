@@ -324,7 +324,11 @@ class GatewayService:
             detail = (
                 f"Provider is rate limited and cooling down for {remaining}s"
                 if status == "rate_limited"
-                else f"Provider is cooling down for {remaining}s"
+                else (
+                    f"Provider stream was interrupted and is cooling down for {remaining}s"
+                    if circuit.reason == "stream_unstable"
+                    else f"Provider is cooling down for {remaining}s"
+                )
             )
             return GatewayProviderHealthResponse(
                 provider_id=provider.id,
@@ -420,7 +424,11 @@ class GatewayService:
                     detail = (
                         f"Provider is rate limited and cooling down for {cooldown_remaining}s"
                         if circuit.reason == "rate_limited"
-                        else f"Provider is cooling down for {cooldown_remaining}s"
+                        else (
+                            f"Provider stream was interrupted and is cooling down for {cooldown_remaining}s"
+                            if circuit.reason == "stream_unstable"
+                            else f"Provider is cooling down for {cooldown_remaining}s"
+                        )
                     )
                     self.request_tracker.mark_error(
                         request_id,
@@ -441,14 +449,12 @@ class GatewayService:
                 try:
                     self.request_tracker.mark_phase(request_id, "model_execution")
                     self._persist_request_state(request_id)
-                    reply = "".join(
-                        adapter.stream_reply(
-                            project=project,
-                            session=session,
-                            recent_messages=recent_messages,
-                            user_message=user_message,
-                            client_request_id=request_id,
-                        )
+                    reply = adapter.reply(
+                        project=project,
+                        session=session,
+                        recent_messages=recent_messages,
+                        user_message=user_message,
+                        client_request_id=request_id,
                     )
                     if post_skills:
                         self.request_tracker.mark_phase(request_id, "post_processing")
@@ -574,7 +580,11 @@ class GatewayService:
                     detail = (
                         f"Provider is rate limited and cooling down for {cooldown_remaining}s"
                         if circuit.reason == "rate_limited"
-                        else f"Provider is cooling down for {cooldown_remaining}s"
+                        else (
+                            f"Provider stream was interrupted and is cooling down for {cooldown_remaining}s"
+                            if circuit.reason == "stream_unstable"
+                            else f"Provider is cooling down for {cooldown_remaining}s"
+                        )
                     )
                     self.request_tracker.mark_error(
                         request_id,
@@ -897,6 +907,9 @@ class GatewayService:
         if self._is_rate_limit_detail(detail):
             state.cooldown_until = time.time() + provider.cooldown_seconds
             state.reason = "rate_limited"
+        elif self._is_partial_stream_disconnect_detail(detail):
+            state.cooldown_until = time.time() + max(5, min(10, provider.cooldown_seconds))
+            state.reason = "stream_unstable"
         elif state.consecutive_failures >= provider.max_consecutive_failures:
             state.cooldown_until = time.time() + provider.cooldown_seconds
             state.reason = "cooldown"
@@ -937,6 +950,10 @@ class GatewayService:
     def _is_rate_limit_detail(self, detail: str) -> bool:
         text = detail.lower()
         return "429" in text or "too many requests" in text or "rate limit" in text
+
+    def _is_partial_stream_disconnect_detail(self, detail: str) -> bool:
+        text = detail.lower()
+        return "streaming connection closed before the response completed" in text
 
     def _estimate_cost_usd(self, provider: ProviderRecord, metrics: ResponseMetrics) -> float:
         prompt_cost = (

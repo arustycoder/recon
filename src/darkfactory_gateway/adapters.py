@@ -115,6 +115,34 @@ class MockGatewayAdapter(BaseGatewayAdapter):
 
 
 class OllamaGatewayAdapter(BaseGatewayAdapter):
+    def reply(
+        self,
+        *,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+        client_request_id: str = "",
+    ) -> str:
+        started_at = perf_counter()
+        timeout = float(self._service.request_timeout_seconds(self._settings))
+        reply = self._service._reply_via_openai_compatible(
+            base_url=self._settings.ollama_url or "http://127.0.0.1:11434/v1",
+            api_key=self._settings.ollama_api_key or "ollama",
+            model=self._settings.ollama_model,
+            project=project,
+            session=session,
+            recent_messages=recent_messages,
+            user_message=user_message,
+            timeout=timeout,
+            client_request_id=client_request_id,
+        )
+        self._capture_metrics(
+            started_at=started_at,
+            first_token_latency_ms=self._service.last_response_metrics().first_token_latency_ms,
+        )
+        return reply
+
     def stream_reply(
         self,
         *,
@@ -146,6 +174,34 @@ class OllamaGatewayAdapter(BaseGatewayAdapter):
 
 
 class OpenAICompatibleGatewayAdapter(BaseGatewayAdapter):
+    def reply(
+        self,
+        *,
+        project: Project,
+        session: Session,
+        recent_messages: Iterable[Message],
+        user_message: str,
+        client_request_id: str = "",
+    ) -> str:
+        started_at = perf_counter()
+        timeout = float(self._service.request_timeout_seconds(self._settings))
+        reply = self._service._reply_via_openai_compatible(
+            base_url=self._settings.openai_base_url,
+            api_key=self._settings.openai_api_key,
+            model=self._settings.openai_model,
+            project=project,
+            session=session,
+            recent_messages=recent_messages,
+            user_message=user_message,
+            timeout=timeout,
+            client_request_id=client_request_id,
+        )
+        self._capture_metrics(
+            started_at=started_at,
+            first_token_latency_ms=self._service.last_response_metrics().first_token_latency_ms,
+        )
+        return reply
+
     def stream_reply(
         self,
         *,

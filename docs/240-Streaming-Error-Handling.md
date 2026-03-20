@@ -13,6 +13,7 @@ Make direct provider streaming and gateway SSE streaming resilient enough that u
 - make gateway `POST /api/chat/stream` end with structured SSE `error` and `done` events instead of a truncated chunked body
 - make gateway `POST /api/chat` surface upstream provider failures as structured gateway errors instead of opaque 500 responses
 - treat upstream `429 Too Many Requests` as a first-class gateway error with cooldown semantics
+- allow synchronous gateway chat requests to retry once with a non-stream completion call after a mid-stream disconnect
 - preserve request persistence and provider error tracking when streaming fails
 
 ### Excluded
@@ -37,6 +38,7 @@ Make direct provider streaming and gateway SSE streaming resilient enough that u
 ## API Impact
 
 - `POST /api/chat` should return a gateway-managed error payload and non-500 status when an upstream provider fails
+- synchronous callers may recover from a mid-stream disconnect without surfacing an error if the follow-up non-stream retry succeeds
 - gateway SSE consumers should expect:
   - `request`
   - `delta`

@@ -75,7 +75,7 @@ class FakeAdapter(GatewayProviderAdapter):
         )
 
     def reply(self, **kwargs) -> str:
-        return self.reply_text
+        return "".join(self.stream_reply(**kwargs))
 
     def stream_reply(self, **kwargs):
         yield self.reply_text
@@ -126,6 +126,16 @@ class CapturingAdapter(FakeAdapter):
         if self.captured is not None:
             self.captured["user_message"] = kwargs["user_message"]
         yield self.reply_text
+
+
+@dataclass
+class ReplyOnlyAdapter(FakeAdapter):
+    def reply(self, **kwargs) -> str:
+        return "reply-path-result"
+
+    def stream_reply(self, **kwargs):
+        raise RuntimeError("stream path should not be used for sync chat")
+        yield ""
 
 
 class GatewayAppTests(unittest.TestCase):
@@ -190,6 +200,35 @@ class GatewayAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["detail"], "sync provider failed")
+
+    def test_sync_chat_uses_adapter_reply_path(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="reply_only",
+                    kind="openai_compatible",
+                    label="Reply Only",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://reply.invalid/v1",
+                        openai_model="reply-model",
+                    ),
+                    default=True,
+                    priority=1,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "reply-path.db"),
+            adapter_factory=MappingAdapterFactory(
+                {"openai_compatible": ReplyOnlyAdapter()}
+            ),
+        )
+
+        response = service.chat(service_request(provider_id="reply_only"))
+
+        self.assertEqual(response.reply, "reply-path-result")
 
     def test_chat_returns_429_when_provider_is_rate_limited(self) -> None:
         registry = ProviderRegistry(
@@ -541,6 +580,40 @@ class GatewayAppTests(unittest.TestCase):
         health = service.provider_health("limited")
         self.assertEqual(health.status, "rate_limited")
         self.assertIn("rate limited", health.detail)
+
+    def test_stream_disconnect_enters_short_cooldown(self) -> None:
+        registry = ProviderRegistry(
+            [
+                ProviderRecord(
+                    id="unstable",
+                    kind="openai_compatible",
+                    label="Unstable",
+                    settings=ProviderSettings(
+                        provider="openai_compatible",
+                        openai_base_url="http://unstable.invalid/v1",
+                        openai_model="unstable-model",
+                    ),
+                    default=True,
+                    cooldown_seconds=60,
+                    max_consecutive_failures=3,
+                )
+            ]
+        )
+        service = GatewayService(
+            provider_registry=registry,
+            storage=Storage(db_path=Path(self.temp_dir.name) / "unstable.db"),
+            adapter_factory=MappingAdapterFactory(
+                {"openai_compatible": RaisingAdapter(error_text="Provider streaming connection closed before the response completed.")}
+            ),
+        )
+
+        with self.assertRaises(RuntimeError):
+            service.chat(service_request(provider_id="unstable", provider_strategy="default"))
+
+        health = service.provider_health("unstable")
+        self.assertEqual(health.status, "cooldown")
+        self.assertIn("stream was interrupted", health.detail)
+        self.assertGreater(health.cooldown_remaining_seconds, 0)
 
     def test_provider_health_reports_misconfigured(self) -> None:
         registry = ProviderRegistry(

@@ -388,6 +388,69 @@ class AssistantServiceTests(unittest.TestCase):
         self.assertIn("closed before the response completed", str(error.exception))
         self.assertNotIn("incomplete chunked read", str(error.exception).lower())
 
+    def test_reply_via_openai_compatible_retries_non_stream_after_partial_disconnect(self) -> None:
+        class BrokenStreamResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_lines(self):
+                yield 'data: {"choices":[{"delta":{"content":"partial"}}]}'
+                raise httpx.RemoteProtocolError("peer closed connection without sending complete message body")
+
+        class ResponseContext:
+            def __init__(self, response) -> None:
+                self._response = response
+
+            def __enter__(self):
+                return self._response
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+        class FallbackResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "final non-stream reply",
+                            }
+                        }
+                    ]
+                }
+
+        class FakeClient:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def stream(self, *args, **kwargs):
+                return ResponseContext(BrokenStreamResponse())
+
+            def post(self, *args, **kwargs):
+                return FallbackResponse()
+
+        with patch("httpx.Client", return_value=FakeClient()):
+            reply = self.service._reply_via_openai_compatible(
+                base_url="http://localhost:8000/v1",
+                api_key="secret",
+                model="demo-model",
+                project=self.project,
+                session=self.session,
+                recent_messages=[],
+                user_message="hello",
+                timeout=10.0,
+                client_request_id="req-123",
+            )
+
+        self.assertEqual(reply, "final non-stream reply")
+        self.assertEqual(self.service.last_response_metrics().stream_mode, "single")
+
 
 if __name__ == "__main__":
     unittest.main()
