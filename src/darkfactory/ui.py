@@ -385,8 +385,8 @@ class MessageCard(QWidget):
         bubble.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         bubble_layout = QVBoxLayout(bubble)
-        bubble_layout.setContentsMargins(12, 10, 12, 10)
-        bubble_layout.setSpacing(6)
+        bubble_layout.setContentsMargins(12, 6, 12, 8)
+        bubble_layout.setSpacing(3)
 
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
