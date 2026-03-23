@@ -28,6 +28,7 @@ Define the future server-side layer that sits between the desktop workbench and 
 - provider routing
 - model prompt assembly
 - business-data enrichment
+- bounded hyperlink preview and remote content summarization for desktop message cards
 - request logging and governance
 - cancellation handling
 
@@ -131,6 +132,31 @@ Suggested response:
 - `GET /api/requests/{request_id}`
 - returns recent in-memory gateway request state for debugging and integration testing
 - should preserve correlation between gateway `request_id`, optional client request ids, and downstream provider traces
+
+### Hyperlink Preview
+
+- `POST /api/link-preview`
+- returns a bounded preview object for an external link so the desktop can render a richer link card without fetching the page directly
+
+Suggested request:
+
+```json
+{
+  "url": "https://example.com/report"
+}
+```
+
+Suggested response:
+
+```json
+{
+  "url": "https://example.com/report",
+  "title": "March Operations Report",
+  "summary": "A short bounded summary extracted from the target page.",
+  "content_type": "text/html",
+  "status": "ok"
+}
+```
 
 ## Desktop Reservation
 

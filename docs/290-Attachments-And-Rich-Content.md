@@ -27,6 +27,7 @@ Improve the chat composer and message rendering so users can:
 - drag-and-drop upload
 - attachment lifecycle APIs on the gateway
 - rich spreadsheet editing in the desktop app
+- gateway-managed hyperlink preview implementation in this phase
 
 ## Attachment Behavior
 
@@ -41,6 +42,7 @@ Improve the chat composer and message rendering so users can:
 - links should be clickable
 - markdown tables should be converted into a readable HTML table layout
 - unsupported markdown features should degrade gracefully to plain text
+- richer remote hyperlink preview should be handled by the gateway in a later phase rather than fetched directly by the desktop client
 
 ## Implementation Notes
 

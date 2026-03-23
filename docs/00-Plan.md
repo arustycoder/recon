@@ -46,6 +46,7 @@ Build a project-based conversational workbench for energy operations analysis:
 - Gateway error taxonomy, sync/stream parity, and provider-specific resilience rules
 - Desktop attachment picker and richer message rendering for files, links, and tables
 - Persistent desktop-side attachment model and richer block-based message rendering
+- Gateway-managed hyperlink preview with safe, limited remote fetch rules
 - Windows installer packaging requirement
 
 ### Excluded
@@ -199,6 +200,7 @@ Model / Business Logic / Data Source
 - Introduce typed gateway provider errors and a first shared retry/cooldown policy table
 - Add a desktop attachment picker and richer message rendering for links and markdown tables
 - Persist desktop attachments and render them as first-class message blocks
+- Add a gateway hyperlink preview capability with timeout, allowlist, and bounded content extraction
 
 ### Phase 5: Domainization
 
@@ -241,6 +243,7 @@ Model / Business Logic / Data Source
 - Pulling in too much real-time integration too early
 - Local LLM resource usage may affect responsiveness on low-spec machines
 - Different OpenAI-compatible backends may vary in API fidelity and response shape
+- Remote hyperlink preview introduces SSRF, timeout, and oversized-content risks if not tightly constrained
 
 ## 11. Immediate Next Steps
 
