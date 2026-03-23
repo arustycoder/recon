@@ -375,6 +375,7 @@ class MessageCard(QWidget):
     ) -> None:
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._role = role
 
         outer_layout = QHBoxLayout(self)
         outer_layout.setContentsMargins(6, 2, 6, 2)
@@ -393,14 +394,20 @@ class MessageCard(QWidget):
 
         title = QLabel(f"{ROLE_LABELS.get(role, role)}  {timestamp}")
         title.setObjectName("message-card-title")
+        title.setAlignment(self._text_alignment())
 
         state = QLabel(state_label)
         state.setObjectName("message-card-state")
         state.setVisible(bool(state_label))
 
-        title_row.addWidget(title)
-        title_row.addStretch(1)
-        title_row.addWidget(state)
+        if role == "user":
+            title_row.addStretch(1)
+            title_row.addWidget(state)
+            title_row.addWidget(title)
+        else:
+            title_row.addWidget(title)
+            title_row.addStretch(1)
+            title_row.addWidget(state)
 
         bubble_layout.addLayout(title_row)
         for block in self._build_message_blocks(content):
@@ -461,6 +468,11 @@ class MessageCard(QWidget):
             """
         )
 
+    def _text_alignment(self) -> Qt.AlignmentFlag:
+        if self._role == "user":
+            return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+
     def _build_message_blocks(self, content: str) -> list[QWidget]:
         blocks: list[QWidget] = []
         normalized = content.replace("\r\n", "\n").replace("\r", "\n")
@@ -481,6 +493,7 @@ class MessageCard(QWidget):
             body.setText("<p>" + "<br>".join(render_inline_rich_text(line) for line in paragraph) + "</p>")
             body.setWordWrap(True)
             body.setObjectName("message-card-body")
+            body.setAlignment(self._text_alignment())
             blocks.append(body)
             paragraph.clear()
 
@@ -502,6 +515,7 @@ class MessageCard(QWidget):
             body = QLabel("<p></p>")
             body.setTextFormat(Qt.TextFormat.RichText)
             body.setObjectName("message-card-body")
+            body.setAlignment(self._text_alignment())
             blocks.append(body)
         return blocks
 
@@ -542,11 +556,13 @@ class MessageCard(QWidget):
 
         title = QLabel(attachment.name)
         title.setObjectName("attachment-title")
+        title.setAlignment(self._text_alignment())
         meta = QLabel(
             f"{attachment.media_type or 'file'} | {attachment.size_bytes} bytes | {attachment.path}"
         )
         meta.setObjectName("attachment-meta")
         meta.setWordWrap(True)
+        meta.setAlignment(self._text_alignment())
 
         layout.addWidget(title)
         layout.addWidget(meta)
@@ -555,6 +571,7 @@ class MessageCard(QWidget):
             excerpt.setTextFormat(Qt.TextFormat.RichText)
             excerpt.setWordWrap(True)
             excerpt.setObjectName("attachment-meta")
+            excerpt.setAlignment(self._text_alignment())
             layout.addWidget(excerpt)
         link = QLabel(
             f'<a href="{html.escape(Path(attachment.path).as_uri(), quote=True)}">打开文件</a>'
@@ -563,6 +580,7 @@ class MessageCard(QWidget):
         link.setOpenExternalLinks(True)
         link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         link.setObjectName("attachment-meta")
+        link.setAlignment(self._text_alignment())
         layout.addWidget(link)
         return card
 
@@ -582,11 +600,13 @@ class MessageCard(QWidget):
 
         title = QLabel(title_text)
         title.setObjectName("link-title")
+        title.setAlignment(self._text_alignment())
         link = QLabel(f'<a href="{html.escape(url, quote=True)}">{html.escape(url)}</a>')
         link.setTextFormat(Qt.TextFormat.RichText)
         link.setOpenExternalLinks(True)
         link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         link.setObjectName("link-meta")
+        link.setAlignment(self._text_alignment())
         layout.addWidget(title)
         layout.addWidget(link)
         return card

@@ -35,7 +35,8 @@ Improve the first-version conversation area so it feels like a usable desktop wo
 
 - render messages as styled widgets rather than plain list rows
 - render each message card at full available message-list width instead of narrow chat bubbles
-- distinguish user and assistant roles by visual style rather than left/right width asymmetry
+- distinguish user and assistant roles by visual style and content alignment
+- align user message content to the right and assistant message content to the left
 - show role label and timestamp
 - convert stored UTC timestamps into local display time in the desktop UI
 - preserve multi-line structured content
