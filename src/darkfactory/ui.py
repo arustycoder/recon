@@ -382,7 +382,6 @@ class MessageCard(QWidget):
         bubble = QFrame()
         bubble.setObjectName(f"message-card-{role}")
         bubble.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        bubble.setMaximumWidth(720)
 
         bubble_layout = QVBoxLayout(bubble)
         bubble_layout.setContentsMargins(12, 10, 12, 10)
@@ -411,12 +410,7 @@ class MessageCard(QWidget):
         for url in extract_urls(content):
             bubble_layout.addWidget(self._build_link_card(url))
 
-        if role == "user":
-            outer_layout.addStretch(1)
-            outer_layout.addWidget(bubble)
-        else:
-            outer_layout.addWidget(bubble)
-            outer_layout.addStretch(1)
+        outer_layout.addWidget(bubble, stretch=1)
 
         self.setStyleSheet(
             """
