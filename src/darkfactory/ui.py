@@ -541,8 +541,15 @@ class MessageCard(QWidget):
         table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         table.setMaximumHeight(160)
+        text_alignment = self._text_alignment()
+        header_item = table.headerItem()
+        for column in range(table.columnCount()):
+            header_item.setTextAlignment(column, text_alignment)
         for row in rows:
-            table.addTopLevelItem(QTreeWidgetItem(row))
+            item = QTreeWidgetItem(row)
+            for column in range(len(row)):
+                item.setTextAlignment(column, text_alignment)
+            table.addTopLevelItem(item)
         for column in range(table.columnCount()):
             table.resizeColumnToContents(column)
         return table, index

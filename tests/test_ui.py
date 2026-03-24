@@ -17,7 +17,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtWidgets import QLabel, QMessageBox
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QMessageBox, QTreeWidget
 
 from darkfactory.models import ProviderSettings
 from darkfactory.services import AssistantService
@@ -25,6 +26,7 @@ from darkfactory.storage import Storage
 from darkfactory.ui import (
     GatewayProviderDialog,
     MainWindow,
+    MessageCard,
     RequestContext,
     RequestLogDialog,
     WorkerResult,
@@ -401,6 +403,18 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertIn("<a href=", html_content)
         self.assertIn("<table", html_content)
+
+    def test_user_message_tables_follow_role_alignment(self) -> None:
+        card = MessageCard(
+            role="user",
+            content="| 指标 | 当前值 |\n| --- | --- |\n| 负荷 | 420MW |",
+        )
+
+        table = card.findChild(QTreeWidget)
+        self.assertIsNotNone(table)
+        expected_alignment = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.assertEqual(table.headerItem().textAlignment(0), expected_alignment)
+        self.assertEqual(table.topLevelItem(0).textAlignment(0), expected_alignment)
 
 
 if __name__ == "__main__":
