@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,14 +19,22 @@ from .models import (
 )
 
 
-DEFAULT_DB_PATH = Path.home() / ".darkfactory" / "darkfactory.db"
+DEFAULT_DB_PATH = Path.home() / ".recon" / "recon.db"
+LEGACY_DB_PATH = Path.home() / ".darkfactory" / "darkfactory.db"
 
 
 class Storage:
     def __init__(self, db_path: Path | None = None) -> None:
-        self.db_path = db_path or DEFAULT_DB_PATH
+        self.db_path = db_path or self._resolve_default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+
+    def _resolve_default_db_path(self) -> Path:
+        if DEFAULT_DB_PATH.exists() or not LEGACY_DB_PATH.exists():
+            return DEFAULT_DB_PATH
+        DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(LEGACY_DB_PATH, DEFAULT_DB_PATH)
+        return DEFAULT_DB_PATH
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -194,7 +203,7 @@ class Storage:
             session_id,
             "assistant",
             (
-                "【结论】\n欢迎使用 DarkFactory 第一版。\n\n"
+                "【结论】\n欢迎使用 Recon 第一版。\n\n"
                 "【原因分析】\n1. 当前为本地示例数据模式\n"
                 "2. 尚未接入真实机组数据\n\n"
                 "【优化建议】\n1. 先体验左侧项目与会话切换\n"

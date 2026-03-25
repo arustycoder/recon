@@ -1,1 +1,0 @@
-"""DarkFactory project package."""

@@ -47,7 +47,7 @@ Current policy intent:
 
 ## Implementation Notes
 
-- policy currently lives alongside the classifier in `src/darkfactory_gateway/errors.py`
+- policy currently lives alongside the classifier in `src/recon_gateway/errors.py`
 - adapters now normalize provider failures into `GatewayProviderError`
 - provider client code now emits typed `AssistantServiceError` instances before adapter normalization
 - gateway service consumes normalized errors and applies policy-driven cooldown decisions

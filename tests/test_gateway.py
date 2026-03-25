@@ -15,9 +15,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from darkfactory.models import ProviderSettings
-from darkfactory.storage import Storage
-from darkfactory_gateway.adapters import (
+from recon.models import ProviderSettings
+from recon.storage import Storage
+from recon_gateway.adapters import (
     GatewayAdapterFactory,
     GatewayProviderAdapter,
     HttpBackendGatewayAdapter,
@@ -25,17 +25,17 @@ from darkfactory_gateway.adapters import (
     OllamaGatewayAdapter,
     OpenAICompatibleGatewayAdapter,
 )
-from darkfactory_gateway.app import create_app
-from darkfactory_gateway.errors import (
+from recon_gateway.app import create_app
+from recon_gateway.errors import (
     GatewayProviderError,
     classify_gateway_error,
     gateway_error_policy,
     gateway_error_policy_for,
 )
-from darkfactory_gateway.models import GatewayChatRequest
-from darkfactory_gateway.registry import ProviderRecord, ProviderRegistry
-from darkfactory_gateway.service import GatewayService
-from darkfactory_gateway.skills import SkillRecord, SkillRegistry
+from recon_gateway.models import GatewayChatRequest
+from recon_gateway.registry import ProviderRecord, ProviderRegistry
+from recon_gateway.service import GatewayService
+from recon_gateway.skills import SkillRecord, SkillRegistry
 
 
 def sample_request() -> dict:
@@ -70,7 +70,7 @@ class FakeAdapter(GatewayProviderAdapter):
     health_text: str = "fake-health"
 
     def __post_init__(self) -> None:
-        from darkfactory.models import ResponseMetrics
+        from recon.models import ResponseMetrics
 
         self._metrics = ResponseMetrics(
             stream_mode="single",
@@ -94,7 +94,7 @@ class FakeAdapter(GatewayProviderAdapter):
         return self.target
 
     def last_result(self):
-        from darkfactory_gateway.adapters import GatewayAdapterResult
+        from recon_gateway.adapters import GatewayAdapterResult
 
         return GatewayAdapterResult(target=self.target, metrics=self._metrics)
 

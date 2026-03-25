@@ -1185,7 +1185,7 @@ class MainWindow(QMainWindow):
         self.slow_response_timer.setSingleShot(True)
         self.slow_response_timer.timeout.connect(self.on_slow_response_timeout)
 
-        self.setWindowTitle("DarkFactory")
+        self.setWindowTitle("Recon")
         self.resize(1180, 760)
 
         self.project_tree = QTreeWidget()
@@ -2323,5 +2323,5 @@ def create_application(argv: list[str] | None = None) -> QApplication:
     app = QApplication.instance()
     if app is None:
         app = QApplication(argv or [])
-    app.setApplicationName("DarkFactory")
+    app.setApplicationName("Recon")
     return app

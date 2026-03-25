@@ -48,7 +48,7 @@ Provider discovery now exposes:
 - `prompt_cost_per_1k`
 - `completion_cost_per_1k`
 
-`DARKFACTORY_GATEWAY_PROVIDERS_JSON` may now include those fields per provider record.
+`RECON_GATEWAY_PROVIDERS_JSON` may now include those fields per provider record.
 
 ## Implementation Notes
 

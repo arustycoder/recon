@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterator
 
-from darkfactory.models import Message, Project, ResponseMetrics, Session
-from darkfactory.storage import Storage
+from recon.models import Message, Project, ResponseMetrics, Session
+from recon.storage import Storage
 
 from .adapters import GatewayAdapterFactory, GatewayProviderAdapter
 from .errors import (

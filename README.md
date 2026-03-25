@@ -1,6 +1,6 @@
-# DarkFactory
+# Recon
 
-Python + Qt desktop project scaffold for an energy-domain conversational workbench.
+Python + Qt desktop project scaffold for an AI assistant workbench. The current implementation still carries energy-domain defaults from the original prototype.
 
 Tooling:
 
@@ -27,7 +27,7 @@ uv run python main.py
 Run gateway locally:
 
 ```bash
-uv run darkfactory-gateway
+uv run recon-gateway
 ```
 
 Run tests:
@@ -39,7 +39,7 @@ uv run python -m unittest discover -s tests
 Behavior:
 
 - default mode uses a built-in mock assistant
-- if `DARKFACTORY_API_URL` is set, the app will POST chat requests to that endpoint
+- if `RECON_API_URL` is set, the app will POST chat requests to that endpoint
 - if local or remote model provider variables are set, the app can talk directly to those providers
 - saved desktop settings override bootstrap defaults from `.env` on subsequent launches
 
@@ -59,20 +59,21 @@ Desktop features:
 - gateway persists request state, supports cooldown-aware provider fallback, and runs phased skills
 - gateway request APIs now support filtered listing and summary aggregation
 - gateway now records request metrics/costs, exposes graded provider health, and uses an adapter boundary for provider execution
+- exploration document added for evolving the project into a general-purpose, customizable AI assistant platform
 
 Provider examples:
 
 ```bash
 # local ollama
-export DARKFACTORY_LLM_PROVIDER=ollama
-export DARKFACTORY_OLLAMA_URL=http://127.0.0.1:11434/v1
-export DARKFACTORY_OLLAMA_MODEL=qwen2.5:latest
+export RECON_LLM_PROVIDER=ollama
+export RECON_OLLAMA_URL=http://127.0.0.1:11434/v1
+export RECON_OLLAMA_MODEL=qwen2.5:latest
 
 # openai-compatible backend
-export DARKFACTORY_LLM_PROVIDER=openai_compatible
-export DARKFACTORY_OPENAI_BASE_URL=http://127.0.0.1:8000/v1
-export DARKFACTORY_OPENAI_API_KEY=dummy-or-real-key
-export DARKFACTORY_OPENAI_MODEL=my-model
+export RECON_LLM_PROVIDER=openai_compatible
+export RECON_OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export RECON_OPENAI_API_KEY=dummy-or-real-key
+export RECON_OPENAI_MODEL=my-model
 ```
 
 `.env` support:
@@ -99,6 +100,7 @@ Notes:
 
 Docs:
 
+- `docs/330-Generic-Assistant-Platform.md`
 - `docs/80-Settings-And-Operations.md`
 - `docs/90-Session-Summaries.md`
 - `docs/100-Packaging-And-Installer.md`

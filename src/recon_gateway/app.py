@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from darkfactory.config import load_env
+from recon.config import load_env
 
 from .errors import normalize_gateway_error
 from .models import (
@@ -24,7 +24,7 @@ from .service import GatewayService
 def create_app(service: GatewayService | None = None) -> FastAPI:
     load_env()
     gateway = service or GatewayService()
-    app = FastAPI(title="DarkFactory Gateway", version="0.1.0")
+    app = FastAPI(title="Recon Gateway", version="0.1.0")
 
     @app.get("/api/health", response_model=GatewayHealthResponse)
     def health() -> GatewayHealthResponse:

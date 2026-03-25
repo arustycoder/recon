@@ -56,6 +56,6 @@ The request model now accepts:
 
 ## Implementation Notes
 
-- provider profiles remain env-driven for now through `DARKFACTORY_GATEWAY_PROVIDERS_JSON`
+- provider profiles remain env-driven for now through `RECON_GATEWAY_PROVIDERS_JSON`
 - the gateway reuses the existing desktop `AssistantService` per provider profile
 - fallback is deliberately synchronous and simple in the first phase so failure behavior is easy to reason about

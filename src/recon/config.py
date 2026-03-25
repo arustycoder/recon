@@ -39,9 +39,17 @@ def load_env() -> None:
         os.environ.setdefault(key, value)
 
 
+def _env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 def provider_settings_from_env() -> ProviderSettings:
     timeout_raw = (
-        os.getenv("DARKFACTORY_REQUEST_TIMEOUT_SECONDS")
+        _env("RECON_REQUEST_TIMEOUT_SECONDS", "DARKFACTORY_REQUEST_TIMEOUT_SECONDS")
         or os.getenv("OPENAI_TIMEOUT_SECONDS")
         or "60"
     )
@@ -51,29 +59,33 @@ def provider_settings_from_env() -> ProviderSettings:
         timeout_value = 60
 
     return ProviderSettings(
-        provider=os.getenv("DARKFACTORY_LLM_PROVIDER", "").strip(),
-        ollama_url=(
-            os.getenv("DARKFACTORY_OLLAMA_URL", "").strip() or "http://127.0.0.1:11434/v1"
+        provider=_env("RECON_LLM_PROVIDER", "DARKFACTORY_LLM_PROVIDER"),
+        ollama_url=_env("RECON_OLLAMA_URL", "DARKFACTORY_OLLAMA_URL")
+        or "http://127.0.0.1:11434/v1",
+        ollama_model=_env("RECON_OLLAMA_MODEL", "DARKFACTORY_OLLAMA_MODEL"),
+        ollama_api_key=(
+            _env("RECON_OLLAMA_API_KEY", "DARKFACTORY_OLLAMA_API_KEY") or "ollama"
         ),
-        ollama_model=os.getenv("DARKFACTORY_OLLAMA_MODEL", "").strip(),
-        ollama_api_key=os.getenv("DARKFACTORY_OLLAMA_API_KEY", "").strip() or "ollama",
         openai_base_url=(
-            os.getenv("DARKFACTORY_OPENAI_BASE_URL", "").strip()
+            _env("RECON_OPENAI_BASE_URL", "DARKFACTORY_OPENAI_BASE_URL")
             or os.getenv("OPENAI_BASE_URL", "").strip()
         ),
         openai_api_key=(
-            os.getenv("DARKFACTORY_OPENAI_API_KEY", "").strip()
+            _env("RECON_OPENAI_API_KEY", "DARKFACTORY_OPENAI_API_KEY")
             or os.getenv("OPENAI_API_KEY", "").strip()
         ),
         openai_model=(
-            os.getenv("DARKFACTORY_OPENAI_MODEL", "").strip()
+            _env("RECON_OPENAI_MODEL", "DARKFACTORY_OPENAI_MODEL")
             or os.getenv("OPENAI_MODEL", "").strip()
         ),
-        api_url=os.getenv("DARKFACTORY_API_URL", "").strip(),
-        api_health_url=os.getenv("DARKFACTORY_API_HEALTH_URL", "").strip(),
-        api_stream_url=os.getenv("DARKFACTORY_API_STREAM_URL", "").strip(),
-        api_cancel_url_template=os.getenv("DARKFACTORY_API_CANCEL_URL_TEMPLATE", "").strip(),
-        api_providers_url=os.getenv("DARKFACTORY_API_PROVIDERS_URL", "").strip(),
+        api_url=_env("RECON_API_URL", "DARKFACTORY_API_URL"),
+        api_health_url=_env("RECON_API_HEALTH_URL", "DARKFACTORY_API_HEALTH_URL"),
+        api_stream_url=_env("RECON_API_STREAM_URL", "DARKFACTORY_API_STREAM_URL"),
+        api_cancel_url_template=_env(
+            "RECON_API_CANCEL_URL_TEMPLATE",
+            "DARKFACTORY_API_CANCEL_URL_TEMPLATE",
+        ),
+        api_providers_url=_env("RECON_API_PROVIDERS_URL", "DARKFACTORY_API_PROVIDERS_URL"),
         request_timeout_seconds=timeout_value,
     )
 

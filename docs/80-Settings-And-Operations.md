@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make DarkFactory operable by non-developer users without editing shell variables manually.
+Make Recon operable by non-developer users without editing shell variables manually.
 
 ## Scope
 

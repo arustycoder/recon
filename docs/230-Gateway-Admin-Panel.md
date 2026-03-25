@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add an operator-facing management panel for the DarkFactory gateway so provider status, request execution, skill configuration, and gateway health can be inspected and operated without relying on raw API calls.
+Add an operator-facing management panel for the Recon gateway so provider status, request execution, skill configuration, and gateway health can be inspected and operated without relying on raw API calls.
 
 ## Why
 

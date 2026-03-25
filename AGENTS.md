@@ -37,7 +37,7 @@
 
 ### Workspace Structure
 
-- Python application code lives under `src/darkfactory/`.
+- Python application code lives under `src/recon/`.
 - Python dependencies are managed with `uv`.
 - Future Rust code must live under `crates/`.
 - Cross-language features should keep UI and app flow in Python unless there is a clear performance or systems reason to move logic into Rust.

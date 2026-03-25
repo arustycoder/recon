@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Iterable, Iterator, Protocol
 
-from darkfactory.models import Message, Project, ProviderSettings, ResponseMetrics, Session
-from darkfactory.services import AssistantService
+from recon.models import Message, Project, ProviderSettings, ResponseMetrics, Session
+from recon.services import AssistantService
 
 from .errors import GatewayProviderError, normalize_gateway_error
 

@@ -73,7 +73,7 @@ wheels = [
 ]
 
 [[package]]
-name = "darkfactory"
+name = "recon"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

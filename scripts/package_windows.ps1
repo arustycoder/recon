@@ -12,7 +12,7 @@ if (-not $SkipSync) {
     uv sync --group dev
 }
 
-uv run pyinstaller packaging/windows/darkfactory.spec --noconfirm --clean
+uv run pyinstaller packaging/windows/recon.spec --noconfirm --clean
 
 if ($SkipInstaller) {
     Write-Host "Executable build complete. Skipping installer generation."
@@ -24,5 +24,5 @@ if (-not (Test-Path $Iscc)) {
     throw "Inno Setup 6 was not found at '$Iscc'. Install it or rerun with -SkipInstaller."
 }
 
-& $Iscc packaging/windows/darkfactory.iss
+& $Iscc packaging/windows/recon.iss
 Write-Host "Windows installer build complete."

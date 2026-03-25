@@ -5,8 +5,8 @@ import os
 from dataclasses import dataclass
 from typing import Iterable
 
-from darkfactory.config import provider_settings_from_env
-from darkfactory.models import ProviderSettings
+from recon.config import provider_settings_from_env
+from recon.models import ProviderSettings
 
 from .models import GatewayProviderInfo
 
@@ -56,7 +56,7 @@ class ProviderRegistry:
             mock_record
         ]
 
-        raw_json = os.getenv("DARKFACTORY_GATEWAY_PROVIDERS_JSON", "").strip()
+        raw_json = os.getenv("RECON_GATEWAY_PROVIDERS_JSON", "").strip()
         if raw_json:
             loaded = json.loads(raw_json)
             if isinstance(loaded, list):

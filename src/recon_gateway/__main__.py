@@ -4,7 +4,7 @@ import uvicorn
 
 
 def main() -> int:
-    uvicorn.run("darkfactory_gateway.app:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("recon_gateway.app:app", host="127.0.0.1", port=8000, reload=False)
     return 0
 
 

@@ -10,9 +10,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from darkfactory.config import load_env, provider_settings_from_env
-from darkfactory.models import Project, ProviderSettings, Session
-from darkfactory.services import AssistantService
+from recon.config import load_env, provider_settings_from_env
+from recon.models import Project, ProviderSettings, Session
+from recon.services import AssistantService
 
 
 def run_provider(settings: ProviderSettings, user_message: str) -> dict[str, object]:

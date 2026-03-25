@@ -123,7 +123,7 @@ Modern API consumers expect:
 - stable error classes
 - predictable streaming termination
 
-DarkFactory is now much closer on those points than before, especially for streaming termination and request inspection.
+Recon is now much closer on those points than before, especially for streaming termination and request inspection.
 
 ### Gateway products like LiteLLM Proxy
 
@@ -134,7 +134,7 @@ Mature gateways usually go further by adding:
 - rate-limit aware routing and backoff
 - richer observability around failure classes
 
-DarkFactory has started this path, but still sits in an embedded, product-first phase rather than a full control-plane phase.
+Recon has started this path, but still sits in an embedded, product-first phase rather than a full control-plane phase.
 
 ## Recommended Next Steps
 

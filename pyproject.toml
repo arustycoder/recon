@@ -1,5 +1,5 @@
 [project]
-name = "darkfactory"
+name = "recon"
 version = "0.1.0"
 description = "Python + Qt desktop scaffold for an energy AI console."
 readme = "README.md"
@@ -12,8 +12,8 @@ dependencies = [
 ]
 
 [project.scripts]
-darkfactory = "darkfactory.app:main"
-darkfactory-gateway = "darkfactory_gateway.__main__:main"
+recon = "recon.app:main"
+recon-gateway = "recon_gateway.__main__:main"
 
 [dependency-groups]
 dev = [

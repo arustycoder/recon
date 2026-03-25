@@ -1,8 +1,8 @@
-# DarkFactory Plan
+# Recon Plan
 
 ## 1. Project Positioning
 
-- Internal codename: `DarkFactory`
+- Internal codename: `Recon`
 - Product direction: `Energy AI Console`
 - Target users: power and energy domain staff, including technical and management roles without IT backgrounds
 - Delivery form: Windows native desktop application based on Python and Qt

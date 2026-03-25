@@ -40,12 +40,12 @@ The gateway now has three meaningful layers instead of one:
 
 - OpenAI’s current API guidance emphasizes semantic streaming events, request IDs, and caller-supplied `X-Client-Request-Id` correlation
 - the gateway should keep converging on normalized `chat / stream / cancel / health / requests` contracts so the desktop client stays thin and easier to evolve
-- background execution and polling are the clearest next step once DarkFactory starts handling very long reasoning jobs
+- background execution and polling are the clearest next step once Recon starts handling very long reasoning jobs
 
 ### LangGraph-style orchestration
 
 - graph orchestration becomes valuable when the request flow contains multi-step tools, retries, and human approval
-- DarkFactory is not there yet; the current deterministic skill layer is the lower-risk intermediate step
+- Recon is not there yet; the current deterministic skill layer is the lower-risk intermediate step
 
 ## Next Gaps
 

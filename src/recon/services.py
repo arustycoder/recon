@@ -11,7 +11,7 @@ from .config import (
     derive_http_stream_url,
     provider_settings_from_env,
 )
-from darkfactory_gateway.errors import gateway_error_policy_for
+from recon_gateway.errors import gateway_error_policy_for
 from .models import Message, Project, ProviderSettings, ResponseMetrics, Session
 
 

@@ -20,10 +20,10 @@ if str(SRC) not in sys.path:
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMessageBox, QTreeWidget
 
-from darkfactory.models import ProviderSettings
-from darkfactory.services import AssistantService
-from darkfactory.storage import Storage
-from darkfactory.ui import (
+from recon.models import ProviderSettings
+from recon.services import AssistantService
+from recon.storage import Storage
+from recon.ui import (
     GatewayProviderDialog,
     MainWindow,
     MessageCard,
@@ -43,7 +43,7 @@ class MainWindowTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.storage = Storage(Path(self.temp_dir.name) / "darkfactory.db")
+        self.storage = Storage(Path(self.temp_dir.name) / "recon.db")
         self.storage.bootstrap()
         self.window = MainWindow(
             storage=self.storage,
@@ -260,7 +260,7 @@ class MainWindowTests(unittest.TestCase):
         dialog.populate()
         self.assertEqual(dialog.log_tree.topLevelItemCount(), 1)
 
-        with patch("darkfactory.ui.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+        with patch("recon.ui.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
             dialog.clear_logs()
 
         self.assertEqual(len(self.storage.list_request_logs(error_type="rate_limited")), 0)
@@ -316,7 +316,7 @@ class MainWindowTests(unittest.TestCase):
             "reset_gateway_provider",
             return_value={"provider_id": "fragile", "status": "reset"},
         ) as reset_mock, patch(
-            "darkfactory.ui.QMessageBox.information",
+            "recon.ui.QMessageBox.information",
             return_value=QMessageBox.StandardButton.Ok,
         ):
             dialog = GatewayProviderDialog(self.window.assistant, settings)

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Define a stable project-management structure for DarkFactory:
+Define a stable project-management structure for Recon:
 
 - Python dependencies managed by `uv`
 - Rust integration added later without reorganizing the repository
@@ -26,9 +26,9 @@ Define a stable project-management structure for DarkFactory:
 ## Repository Layout
 
 ```text
-darkfactory/
+recon/
 ├── docs/                  # product, feature, architecture docs
-├── src/darkfactory/       # Python desktop application
+├── src/recon/       # Python desktop application
 ├── tests/                 # Python tests
 ├── crates/                # future Rust crates
 ├── Cargo.toml             # Rust workspace root

@@ -107,7 +107,7 @@ Short cooldown and rate-limit cooldown still exist, but they are now driven by c
 
 ## Implementation Notes
 
-- classification lives in `src/darkfactory_gateway/errors.py`
+- classification lives in `src/recon_gateway/errors.py`
 - adapter failures are normalized into `GatewayProviderError`
 - desktop/provider client code now raises typed `AssistantServiceError` values for HTTP, timeout, and stream-interruption failures
 - request persistence stores `error_type` in SQLite

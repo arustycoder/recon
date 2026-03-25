@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a first runnable gateway skeleton so DarkFactory can evolve from direct desktop-to-provider calls toward a centralized service layer.
+Add a first runnable gateway skeleton so Recon can evolve from direct desktop-to-provider calls toward a centralized service layer.
 
 ## Scope
 

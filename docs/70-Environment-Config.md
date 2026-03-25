@@ -2,14 +2,14 @@
 
 ## Goal
 
-Let DarkFactory run with provider configuration from a local `.env` file, without requiring users to export environment variables manually in the shell.
+Let Recon run with provider configuration from a local `.env` file, without requiring users to export environment variables manually in the shell.
 
 ## Scope
 
 ### Included
 
 - automatically load `.env` from the repository root at startup
-- support DarkFactory-specific variable names
+- support Recon-specific variable names
 - support generic OpenAI-style variable names for OpenAI-compatible providers
 
 ### Excluded
@@ -20,19 +20,19 @@ Let DarkFactory run with provider configuration from a local `.env` file, withou
 
 ## Supported Variables
 
-### Preferred DarkFactory Names
+### Preferred Recon Names
 
-- `DARKFACTORY_LLM_PROVIDER`
-- `DARKFACTORY_OLLAMA_URL`
-- `DARKFACTORY_OLLAMA_MODEL`
-- `DARKFACTORY_OPENAI_BASE_URL`
-- `DARKFACTORY_OPENAI_API_KEY`
-- `DARKFACTORY_OPENAI_MODEL`
-- `DARKFACTORY_API_URL`
-- `DARKFACTORY_API_STREAM_URL`
-- `DARKFACTORY_API_CANCEL_URL_TEMPLATE`
-- `DARKFACTORY_API_HEALTH_URL`
-- `DARKFACTORY_API_PROVIDERS_URL`
+- `RECON_LLM_PROVIDER`
+- `RECON_OLLAMA_URL`
+- `RECON_OLLAMA_MODEL`
+- `RECON_OPENAI_BASE_URL`
+- `RECON_OPENAI_API_KEY`
+- `RECON_OPENAI_MODEL`
+- `RECON_API_URL`
+- `RECON_API_STREAM_URL`
+- `RECON_API_CANCEL_URL_TEMPLATE`
+- `RECON_API_HEALTH_URL`
+- `RECON_API_PROVIDERS_URL`
 
 ### Compatible OpenAI-Like Names
 
@@ -44,7 +44,7 @@ These should map automatically to the OpenAI-compatible provider path:
 
 ## Resolution Rules
 
-- if a DarkFactory-specific variable is present, it wins
+- if a Recon-specific variable is present, it wins
 - otherwise compatible OpenAI-style variables may be used
 - `.env` loading should not override already exported shell variables
 

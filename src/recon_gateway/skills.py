@@ -85,7 +85,7 @@ class SkillRegistry:
             ),
         ]
 
-        raw_json = os.getenv("DARKFACTORY_GATEWAY_SKILLS_JSON", "").strip()
+        raw_json = os.getenv("RECON_GATEWAY_SKILLS_JSON", "").strip()
         if not raw_json:
             return records
 

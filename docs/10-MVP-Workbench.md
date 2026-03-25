@@ -2,7 +2,7 @@
 
 ## Goal
 
-Deliver the first runnable desktop version of DarkFactory:
+Deliver the first runnable desktop version of Recon:
 
 - left-side `Project / Session` tree
 - left-side scenario library
@@ -90,7 +90,7 @@ The desktop app supports two execution modes:
 
 ### HTTP mode
 
-- enabled when `DARKFACTORY_API_URL` is set
+- enabled when `RECON_API_URL` is set
 - sends project/session context plus recent messages
 - expects a JSON response with `reply`
 

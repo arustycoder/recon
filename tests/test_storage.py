@@ -12,14 +12,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from darkfactory.storage import Storage
-from darkfactory.models import ProviderSettings
+from recon.storage import Storage
+from recon.models import ProviderSettings
 
 
 class StorageTests(unittest.TestCase):
     def test_storage_project_session_and_message_flow(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             project_id = storage.create_project("测试项目", plant="测试电厂", unit="2#机")
@@ -39,7 +39,7 @@ class StorageTests(unittest.TestCase):
 
     def test_message_attachment_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             project_id = storage.create_project("测试项目")
@@ -65,7 +65,7 @@ class StorageTests(unittest.TestCase):
 
     def test_app_state_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             self.assertIsNone(storage.get_state("last_session_id"))
@@ -75,7 +75,7 @@ class StorageTests(unittest.TestCase):
 
     def test_provider_settings_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             settings = ProviderSettings(
@@ -99,7 +99,7 @@ class StorageTests(unittest.TestCase):
 
     def test_request_log_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             project_id = storage.create_project("测试项目")
@@ -129,7 +129,7 @@ class StorageTests(unittest.TestCase):
 
     def test_request_log_filters_and_clear(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             project_id = storage.create_project("测试项目")
@@ -166,7 +166,7 @@ class StorageTests(unittest.TestCase):
 
     def test_gateway_request_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             project_id = storage.create_project("测试项目")
@@ -225,7 +225,7 @@ class StorageTests(unittest.TestCase):
 
     def test_gateway_request_filters(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "darkfactory.db"
+            db_path = Path(temp_dir) / "recon.db"
             storage = Storage(db_path=db_path)
 
             storage.save_gateway_request(

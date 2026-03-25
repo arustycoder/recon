@@ -15,40 +15,40 @@ Implement a simple provider layer inside the desktop application without introdu
 
 The app should select the provider using the following order:
 
-1. `DARKFACTORY_LLM_PROVIDER` when explicitly set
+1. `RECON_LLM_PROVIDER` when explicitly set
 2. `ollama` when local Ollama configuration is present
 3. `openai_compatible` when OpenAI-style remote configuration is present
-4. `http_backend` when `DARKFACTORY_API_URL` is set
+4. `http_backend` when `RECON_API_URL` is set
 5. fallback to `mock`
 
 ## Configuration Contract
 
 ### Ollama
 
-- `DARKFACTORY_LLM_PROVIDER=ollama`
-- `DARKFACTORY_OLLAMA_URL`
-- `DARKFACTORY_OLLAMA_MODEL`
+- `RECON_LLM_PROVIDER=ollama`
+- `RECON_OLLAMA_URL`
+- `RECON_OLLAMA_MODEL`
 
 ### OpenAI-Compatible
 
-- `DARKFACTORY_LLM_PROVIDER=openai_compatible`
-- `DARKFACTORY_OPENAI_BASE_URL`
-- `DARKFACTORY_OPENAI_API_KEY`
-- `DARKFACTORY_OPENAI_MODEL`
+- `RECON_LLM_PROVIDER=openai_compatible`
+- `RECON_OPENAI_BASE_URL`
+- `RECON_OPENAI_API_KEY`
+- `RECON_OPENAI_MODEL`
 
 ### HTTP Backend
 
-- `DARKFACTORY_LLM_PROVIDER=http_backend`
-- `DARKFACTORY_API_URL`
+- `RECON_LLM_PROVIDER=http_backend`
+- `RECON_API_URL`
 - optional reserved fields for future gateway deployment:
-  - `DARKFACTORY_API_STREAM_URL`
-  - `DARKFACTORY_API_CANCEL_URL_TEMPLATE`
-  - `DARKFACTORY_API_HEALTH_URL`
-  - `DARKFACTORY_API_PROVIDERS_URL`
+  - `RECON_API_STREAM_URL`
+  - `RECON_API_CANCEL_URL_TEMPLATE`
+  - `RECON_API_HEALTH_URL`
+  - `RECON_API_PROVIDERS_URL`
 
 ### Mock
 
-- `DARKFACTORY_LLM_PROVIDER=mock`
+- `RECON_LLM_PROVIDER=mock`
 
 ## Interface Contract
 

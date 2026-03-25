@@ -2,7 +2,7 @@
 
 ## Goal
 
-Allow DarkFactory users to chat with either:
+Allow Recon users to chat with either:
 
 - a locally running LLM
 - an OpenAI-compatible backend
@@ -69,7 +69,7 @@ Desktop-side providers:
 
 Recommended selection order:
 
-1. explicit `DARKFACTORY_LLM_PROVIDER`
+1. explicit `RECON_LLM_PROVIDER`
 2. local `ollama`
 3. `openai_compatible`
 4. custom `http_backend`
@@ -102,13 +102,13 @@ If provider count grows later, `LiteLLM Proxy` can be introduced as a separate g
 
 Suggested first-pass environment variables:
 
-- `DARKFACTORY_LLM_PROVIDER`
-- `DARKFACTORY_OLLAMA_URL`
-- `DARKFACTORY_OLLAMA_MODEL`
-- `DARKFACTORY_OPENAI_BASE_URL`
-- `DARKFACTORY_OPENAI_API_KEY`
-- `DARKFACTORY_OPENAI_MODEL`
-- `DARKFACTORY_API_URL`
+- `RECON_LLM_PROVIDER`
+- `RECON_OLLAMA_URL`
+- `RECON_OLLAMA_MODEL`
+- `RECON_OPENAI_BASE_URL`
+- `RECON_OPENAI_API_KEY`
+- `RECON_OPENAI_MODEL`
+- `RECON_API_URL`
 
 ## Prompting Rules
 
