@@ -101,6 +101,13 @@ Notes:
 Docs:
 
 - `docs/330-Generic-Assistant-Platform.md`
+- `docs/340-Memory-Model.md`
+- `docs/350-Task-Runtime.md`
+- `docs/360-Knowledge-System.md`
+- `docs/370-Safety-And-Permissions.md`
+- `docs/380-Evaluation-And-Quality.md`
+- `docs/390-Identity-And-Collaboration.md`
+- `docs/400-Channels-And-Integrations.md`
 - `docs/80-Settings-And-Operations.md`
 - `docs/90-Session-Summaries.md`
 - `docs/100-Packaging-And-Installer.md`

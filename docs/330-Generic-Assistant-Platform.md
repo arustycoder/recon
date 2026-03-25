@@ -4,6 +4,18 @@
 
 Explore how `recon` can evolve from an energy-domain conversational workbench into a general-purpose, customizable AI assistant product without discarding the useful runtime and operations work that already exists.
 
+## Companion Design Docs
+
+This document is the platform overview. Detailed follow-on designs live in:
+
+- `docs/340-Memory-Model.md`
+- `docs/350-Task-Runtime.md`
+- `docs/360-Knowledge-System.md`
+- `docs/370-Safety-And-Permissions.md`
+- `docs/380-Evaluation-And-Quality.md`
+- `docs/390-Identity-And-Collaboration.md`
+- `docs/400-Channels-And-Integrations.md`
+
 ## Current Reusable Assets
 
 The project already has several platform-ready building blocks:
