@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Information Card</title>
+  <style>
+    :root {
+      --paper: #f4eee2;
+      --ink: #121212;
+      --muted: #6f665d;
+      --accent: #c8612e;
+      --line: rgba(18, 18, 18, 0.12);
+      --panel: rgba(255, 255, 255, 0.62);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(180deg, #d8ccbd 0%, #d2c6b7 100%);
+      color: var(--ink);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    .page {
+      width: min(1440px, calc(100vw - 48px));
+      margin: 28px auto;
+      padding: 42px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(244, 238, 226, 0.94));
+      box-shadow: 0 18px 48px rgba(40, 31, 22, 0.12);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.05fr 1.15fr;
+      gap: 28px;
+      margin-top: 20px;
+    }
+
+    .hero h1,
+    .section-title {
+      font-family: Georgia, "Times New Roman", serif;
+      letter-spacing: -0.05em;
+    }
+
+    .hero h1 {
+      margin: 46px 0 18px;
+      font-size: clamp(54px, 6vw, 90px);
+      line-height: 0.94;
+    }
+
+    .summary {
+      border-top: 4px solid var(--accent);
+      padding-top: 16px;
+      font-size: 24px;
+      line-height: 1.48;
+      font-weight: 700;
+    }
+
+    .panel-header,
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-end;
+      padding-bottom: 12px;
+      border-bottom: 3px solid var(--ink);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-top: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .card {
+      padding: 18px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      min-height: 154px;
+    }
+
+    .card .no {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .card h3 {
+      margin: 8px 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 26px;
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+
+    .card p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1100px) {
+      .layout,
+      .cards {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="topbar">
+      <div>Topic / System / Interpretation</div>
+      <div>Card</div>
+    </div>
+
+    <section class="layout">
+      <section class="hero">
+        <h1>Replace This With The Main Title</h1>
+        <div class="summary">Replace this with the core thesis.</div>
+      </section>
+
+      <section>
+        <div class="panel-header">
+          <div>Structure / Notes / Interpretation</div>
+          <div>Guide</div>
+        </div>
+
+        <section class="cards">
+          <article class="card">
+            <div class="no">01</div>
+            <h3>Block Title</h3>
+            <p>Replace with a short explanation.</p>
+          </article>
+          <article class="card">
+            <div class="no">02</div>
+            <h3>Block Title</h3>
+            <p>Replace with a short explanation.</p>
+          </article>
+          <article class="card">
+            <div class="no">03</div>
+            <h3>Block Title</h3>
+            <p>Replace with a short explanation.</p>
+          </article>
+          <article class="card">
+            <div class="no">04</div>
+            <h3>Block Title</h3>
+            <p>Replace with a short explanation.</p>
+          </article>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

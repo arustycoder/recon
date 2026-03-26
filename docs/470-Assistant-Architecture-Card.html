@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recon Assistant Architecture Card</title>
+  <style>
+    :root {
+      --paper: #f5efe4;
+      --panel: rgba(255, 255, 255, 0.68);
+      --ink: #151515;
+      --muted: #6e665f;
+      --accent: #c85e2a;
+      --line: rgba(21, 21, 21, 0.14);
+      --glow: rgba(200, 94, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 20%, var(--glow), transparent 28%),
+        radial-gradient(circle at 80% 18%, rgba(135, 82, 34, 0.06), transparent 24%),
+        linear-gradient(180deg, #d8cdbf 0%, #d2c7ba 100%);
+      color: var(--ink);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    .page {
+      width: min(1440px, calc(100vw - 48px));
+      margin: 32px auto;
+      padding: 42px 46px 34px;
+      background:
+        radial-gradient(circle at 50% 8%, rgba(200, 94, 42, 0.08), transparent 22%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(245, 239, 228, 0.92));
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      box-shadow: 0 18px 55px rgba(47, 38, 29, 0.12);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .topbar .guide {
+      color: var(--accent);
+      font-size: 16px;
+      letter-spacing: 0.04em;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.04fr) minmax(0, 1.16fr);
+      gap: 28px;
+    }
+
+    .hero {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+      gap: 24px;
+    }
+
+    .hero h1 {
+      margin: 42px 0 0;
+      max-width: 720px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(50px, 5.6vw, 86px);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+      font-weight: 700;
+    }
+
+    .hero .ghost {
+      position: absolute;
+      right: 12px;
+      top: 70px;
+      font-size: 124px;
+      font-family: Georgia, "Times New Roman", serif;
+      color: rgba(200, 94, 42, 0.08);
+      font-weight: 700;
+      letter-spacing: -0.08em;
+      pointer-events: none;
+    }
+
+    .hero-block {
+      position: relative;
+      padding-right: 56px;
+    }
+
+    .hero-intro {
+      max-width: 620px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.55;
+      font-weight: 600;
+    }
+
+    .stack-card {
+      margin-top: auto;
+      padding: 22px;
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid var(--line);
+    }
+
+    .stack-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      padding-bottom: 12px;
+      border-bottom: 3px solid var(--ink);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .stack-title strong {
+      color: var(--accent);
+      font-size: 15px;
+      letter-spacing: 0.06em;
+    }
+
+    .stack {
+      margin-top: 18px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .stack-layer {
+      display: grid;
+      grid-template-columns: 74px 1fr;
+      gap: 14px;
+      align-items: stretch;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.7);
+      min-height: 72px;
+    }
+
+    .stack-layer .layer-no {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, rgba(200, 94, 42, 0.18), rgba(200, 94, 42, 0.05));
+      color: var(--accent);
+      font-size: 15px;
+      letter-spacing: 0.08em;
+      font-weight: 800;
+    }
+
+    .stack-layer .layer-copy {
+      padding: 13px 14px 12px 0;
+    }
+
+    .stack-layer h2 {
+      margin: 0 0 4px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 26px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .stack-layer p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .stack-foundation {
+      margin-top: 12px;
+      padding: 16px 18px;
+      border-top: 4px solid var(--accent);
+      background: rgba(255, 255, 255, 0.62);
+      font-size: 19px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+
+    .stack-foundation .accent {
+      color: var(--accent);
+    }
+
+    .panel {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 16px;
+    }
+
+    .panel-header {
+      padding-top: 8px;
+      border-bottom: 4px solid var(--ink);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+      padding-bottom: 12px;
+    }
+
+    .core-judgement {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 8px 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .core-judgement h2 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 30px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .core-judgement p {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 500;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border-top: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .card {
+      padding: 18px 18px 22px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      min-height: 164px;
+    }
+
+    .card .no {
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 26px;
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+
+    .card p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #202020;
+    }
+
+    .conclusion {
+      margin-top: 18px;
+      background: rgba(255, 255, 255, 0.52);
+      border-left: 5px solid var(--accent);
+      padding: 18px 18px 16px;
+    }
+
+    .conclusion h2 {
+      margin: 0 0 10px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 34px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .conclusion p {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.55;
+    }
+
+    .footer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 18px;
+      padding-top: 12px;
+      border-top: 4px solid var(--ink);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .footer strong {
+      color: var(--accent);
+    }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .hero h1 {
+        margin-top: 24px;
+      }
+
+      .hero-block {
+        padding-right: 0;
+      }
+
+      .hero .ghost {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        width: min(100vw, calc(100vw - 20px));
+        padding: 22px 20px 24px;
+      }
+
+      .cards,
+      .footer,
+      .core-judgement {
+        grid-template-columns: 1fr;
+      }
+
+      .cards,
+      .stack {
+        grid-template-columns: 1fr;
+      }
+
+      .stack-layer {
+        grid-template-columns: 60px 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="topbar">
+      <div>Recon / AI Assistant System / Clean-Slate Architecture</div>
+      <div class="guide">Card</div>
+    </div>
+
+    <section class="layout">
+      <section class="hero">
+        <div class="hero-block">
+          <div class="ghost">AI</div>
+          <h1>Recon：一个可自演化、可治理的 AI 助理系统</h1>
+          <p class="hero-intro">
+            用 stack 的方式看，这个产品不是“一个大模型 + 一个聊天框”，而是一层层叠起来的工作系统：
+            使用者、入口、工作空间、助理本体、运行时、能力层，再加一条始终存在的治理底座。
+          </p>
+        </div>
+
+        <section class="stack-card">
+          <div class="stack-title">
+            <div>Layered View / Product Stack / Runtime Boundaries</div>
+            <strong>Stack</strong>
+          </div>
+
+          <div class="stack">
+            <article class="stack-layer">
+              <div class="layer-no">01</div>
+              <div class="layer-copy">
+                <h2>Users / Teams</h2>
+                <p>谁拥有资产、谁发起请求、谁审批、谁消费结果。</p>
+              </div>
+            </article>
+
+            <article class="stack-layer">
+              <div class="layer-no">02</div>
+              <div class="layer-copy">
+                <h2>Channels</h2>
+                <p>Web、Desktop、API、Connectors 只是入口，不定义核心语义。</p>
+              </div>
+            </article>
+
+            <article class="stack-layer">
+              <div class="layer-no">03</div>
+              <div class="layer-copy">
+                <h2>Workspace</h2>
+                <p>统一承载 conversation、task、resource、knowledge、memory 与 profile 绑定。</p>
+              </div>
+            </article>
+
+            <article class="stack-layer">
+              <div class="layer-no">04</div>
+              <div class="layer-copy">
+                <h2>Effective Assistant</h2>
+                <p>Published Profile + Adaptive Overlays + Memory + Policy。</p>
+              </div>
+            </article>
+
+            <article class="stack-layer">
+              <div class="layer-no">05</div>
+              <div class="layer-copy">
+                <h2>Runtime</h2>
+                <p>Request Runtime + Task Runtime，决定一次请求如何回答、审批或转任务。</p>
+              </div>
+            </article>
+
+            <article class="stack-layer">
+              <div class="layer-no">06</div>
+              <div class="layer-copy">
+                <h2>Capabilities</h2>
+                <p>Knowledge System + Tool System，提供检索、引用、读写与行动能力。</p>
+              </div>
+            </article>
+          </div>
+
+          <div class="stack-foundation">
+            始终存在的底座是
+            <span class="accent">Identity / Safety / Evaluation / Audit / Control Plane</span>，
+            它们不是附属模块，而是整套系统的治理基础。
+          </div>
+        </section>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>Workspace / Profile / Runtime / Governance / Adaptation</div>
+          <div>Overview</div>
+        </div>
+
+        <section class="core-judgement">
+          <h2>核心判断</h2>
+          <p>
+            真正生效的助理不是单一 profile，而是
+            <strong>Published Profile + Adaptive Overlays + Memory + Policy</strong>
+            的组合；系统价值不只在回答，还在长期学习、任务执行和可治理性。
+          </p>
+        </section>
+
+        <section class="cards">
+          <article class="card">
+            <div class="no">01</div>
+            <h3>产品定位</h3>
+            <p>通用、可定制、可自演化、可治理的 AI 助理系统。聊天只是入口，不是产品边界。</p>
+          </article>
+
+          <article class="card">
+            <div class="no">02</div>
+            <h3>工作边界</h3>
+            <p><strong>Workspace</strong> 是统一工作容器，承载 conversation、task、resource、knowledge、memory 与 profile 绑定。</p>
+          </article>
+
+          <article class="card">
+            <div class="no">03</div>
+            <h3>助理本体</h3>
+            <p><strong>Profile</strong> 是稳定基线；<strong>Adaptive Overlay</strong> 是学习层；二者再与 memory、policy 组合成 effective assistant。</p>
+          </article>
+
+          <article class="card">
+            <div class="no">04</div>
+            <h3>执行主线</h3>
+            <p>请求先解析 actor / workspace / profile / policy，再决定直接回答、工具辅助、审批等待或转入 task。</p>
+          </article>
+
+          <article class="card">
+            <div class="no">05</div>
+            <h3>能力底座</h3>
+            <p><strong>Memory</strong> 负责记住，<strong>Knowledge</strong> 负责引用和检索，<strong>Tools</strong> 负责读写和行动。</p>
+          </article>
+
+          <article class="card">
+            <div class="no">06</div>
+            <h3>自演化模型</h3>
+            <p>系统通过 observe → candidate → evaluate → overlay → promote / rollback 的闭环学习，而不是静默改写 profile。</p>
+          </article>
+
+          <article class="card">
+            <div class="no">07</div>
+            <h3>治理约束</h3>
+            <p>Identity、Safety、Evaluation、Audit、Control Plane 构成系统级约束，防止学习层越权或漂移。</p>
+          </article>
+
+          <article class="card">
+            <div class="no">08</div>
+            <h3>多端交付</h3>
+            <p>Web、Desktop、API、Connectors 都只是入口；核心语义必须共享同一套 request / task / approval contract。</p>
+          </article>
+        </section>
+
+        <section class="conclusion">
+          <h2>一句话结论</h2>
+          <p>
+            Recon 的总体设计不是“一个会聊天的模型”，而是：
+            <strong>以 workspace 为工作边界，以 profile 为稳定基线，以 adaptive overlay 为学习层，以 memory / knowledge / tool 为能力底座，以 request / task 为执行主线，以 policy / evaluation 为治理框架</strong>
+            的自演化 AI 助理系统。
+          </p>
+        </section>
+
+        <section class="footer">
+          <div>
+            <strong>适合用来：</strong>
+            解释总体产品架构，做单页评审，向团队快速对齐核心对象、执行主线和治理边界。
+          </div>
+          <div>
+            <strong>设计依据：</strong>
+            `330 / 340 / 350 / 360 / 370 / 380 / 390 / 400 / 410 / 420 / 430 / 440 / 450 / 460`
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

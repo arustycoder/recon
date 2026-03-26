@@ -2,81 +2,85 @@
 
 ## Goal
 
-Define how `recon` controls tool execution, data access, approvals, and secrets so the assistant remains useful without becoming unsafe or opaque.
+Define how the system controls data access, tool execution, approvals, and secret use so the assistant remains useful without becoming unsafe or opaque.
+
+This document assumes the adaptive behavior model in `docs/460-Adaptive-Evolution-Model.md` and the industry control patterns summarized in `docs/450-Industry-Patterns-For-Adaptive-Assistants.md` [1][2].
 
 ## Scope
 
 ### Included
 
+- actor and role-based access checks
 - tool risk tiers
 - approval policies
-- workspace and profile access rules
 - secret handling
-- data minimization and auditability
-- operator-visible safety decisions
+- output safety and refusal rules
+- auditability
 
 ### Excluded
 
-- full enterprise IAM integration in the first phase
-- background side effects with no audit trail
+- organization-specific IAM implementation details
 - unrestricted tool access by default
+- side effects with no audit record
+
+## Policy Layers
+
+- identity policy
+- workspace policy
+- profile policy
+- data visibility policy
+- tool execution policy
+
+The effective decision should be the intersection of these layers, not whichever one is most permissive.
+
+Adaptive overlays may refine behavior, but they must never override policy decisions [1].
 
 ## Tool Risk Tiers
 
-Recommended default tiers:
+- `read_only`
+- `external_read`
+- `local_write`
+- `external_write`
 
-- `read_only`: safe reads such as retrieval and local inspection
-- `external_read`: outbound fetches or third-party API reads
-- `local_write`: modifies local files or local state
-- `external_write`: sends data or changes state outside the product
-
-The higher the tier, the stronger the approval requirement.
+Higher-risk tiers require stronger approval and audit requirements.
 
 ## Approval Rules
 
-- read-only actions may run automatically when the workspace policy allows them
-- external reads should respect allowlists, timeouts, and source bounds
-- local writes should be explicit and inspectable
-- external writes should require user approval in the first phase
+- safe reads may run automatically when policy allows
+- external reads should respect allowlists, timeouts, and size bounds
+- write actions should be explicit and inspectable
+- external writes should require approval in the default policy set
+- learned behavior must not auto-promote into new write permissions or broader data visibility [1][2]
 
-## Secret Handling
+## Secret Rules
 
-- secrets should be stored separately from general prompt content
-- the model should receive only the minimum credential form needed for a specific call
-- raw secrets must not appear in chat history, request logs, or user-visible tool traces
+- secrets must be stored separately from general prompt data
+- the runtime should expose only the minimum secret material needed for one invocation
+- raw secrets must not appear in conversation history, user-visible traces, or general logs
 
-## Data Access Rules
+## Output Safety Rules
 
-- retrieval and tools must honor workspace visibility before execution
-- profile defaults must not bypass workspace restrictions
-- safety decisions should be enforced in the gateway, not only in the desktop UI
-
-## Audit Model
-
-Important actions should be auditable:
-
-- who requested the action
-- which profile and workspace were active
-- which tool or source was used
-- whether approval was required
-- the final outcome
+- unsupported claims should be downgraded or labeled as uncertain
+- policy-restricted requests should fail with explicit refusal reasons
+- responses involving sensitive sources or tools should preserve provenance and audit data
 
 ## Data Impact
 
-Recommended new entities:
+Recommended entities:
 
-- `tool_policies`
+- `policy_records`
 - `approval_records`
 - `audit_events`
 - `secret_references`
 
-## Implementation Notes
+## Client Impact
 
-- the first phase can keep policy evaluation rule-based and explicit
-- approval UX should explain why a step is blocked, not only that it is blocked
-- safety policy should integrate with task runtime so approval waits become first-class states
+- blocked actions should explain why they are blocked
+- approvals should show actor, action, target, and risk tier
+- users should be able to inspect what the assistant did, not only what it said
 
-## Relationship To Existing Docs
+## References
 
-- complements `docs/230-Gateway-Admin-Panel.md`
-- complements `docs/330-Generic-Assistant-Platform.md`
+[1] `docs/460-Adaptive-Evolution-Model.md`
+
+[2] `docs/450-Industry-Patterns-For-Adaptive-Assistants.md`

@@ -2,58 +2,60 @@
 
 ## Goal
 
-Define how `recon` measures assistant quality, catches regressions, and compares profile or provider changes before they become the default behavior.
+Define how the product measures assistant quality, catches regressions, and controls profile or provider changes before they become default behavior.
+
+This document assumes the adaptive governance loop described in `docs/460-Adaptive-Evolution-Model.md` and the industry patterns summarized in `docs/450-Industry-Patterns-For-Adaptive-Assistants.md` [1][2].
 
 ## Scope
 
 ### Included
 
 - offline evaluation suites
-- golden task cases
-- profile and provider comparison
-- human review workflow
-- user feedback capture
+- human review workflows
+- online product signals
 - quality, latency, and cost guardrails
+- release gates for profiles, tools, and retrieval behavior
 
 ### Excluded
 
 - public leaderboard features
-- one-number quality scoring without trace detail
+- one-number quality reporting with no traceability
+
+## Quality Dimensions
+
+- correctness
+- groundedness
+- instruction following
+- task success
+- safety behavior
+- latency
+- cost
 
 ## Evaluation Layers
 
-### Offline Regression
+### Offline
 
-Stable test cases used to compare:
-
-- prompt/profile revisions
-- provider changes
-- tool behavior changes
-- retrieval changes
+Stable cases used to compare profiles, providers, tool behavior, and retrieval behavior.
 
 ### Human Review
 
-Focused review for:
-
-- correctness
-- citation quality
-- instruction following
-- safety and refusal behavior
-- task usefulness
+Focused inspection for correctness, citations, usability, and safety.
 
 ### Online Signals
 
-Runtime signals such as:
+Runtime evidence such as feedback, completion rate, tool failure rate, approval failure rate, latency drift, and cost drift.
 
-- user feedback
-- completion rate
-- approval failure rate
-- tool failure rate
-- cost and latency drift
+## Release Rules
+
+- default profile changes should pass offline regression first
+- tool-enabled profiles should be reviewed for both success and safety
+- retrieval changes should be evaluated for citation quality, not only answer style
+- cost and latency regressions should be visible before rollout
+- learned overlays should be promotable only after explicit evaluation evidence [1][2]
 
 ## Data Impact
 
-Recommended new entities:
+Recommended entities:
 
 - `eval_suites`
 - `eval_cases`
@@ -61,29 +63,13 @@ Recommended new entities:
 - `eval_results`
 - `feedback_records`
 
-Suggested tracked fields:
+## Client Impact
 
-- profile version
-- provider id
-- tool set
-- retrieval mode
-- pass/fail or scored dimensions
-- reviewer notes
+- control-plane surfaces should expose comparison views between profile or provider revisions
+- feedback capture should be available from every user-facing channel
 
-## Release Rules
+## References
 
-- default profile changes should pass offline regression first
-- tool-enabled profiles should be checked for both task success and safety behavior
-- major retrieval changes should include citation-quality review, not only answer review
+[1] `docs/460-Adaptive-Evolution-Model.md`
 
-## Implementation Notes
-
-- the first phase can keep evaluation storage simple and file-backed if needed
-- request metrics already present in the gateway should be reused for latency and cost baselines
-- evaluation should be treated as a product requirement, not a temporary development aid
-
-## Relationship To Existing Docs
-
-- complements `docs/170-Gateway-Observability.md`
-- complements `docs/200-Gateway-Metrics-And-Costs.md`
-- complements `docs/330-Generic-Assistant-Platform.md`
+[2] `docs/450-Industry-Patterns-For-Adaptive-Assistants.md`
