@@ -100,6 +100,8 @@ Notes:
 
 Docs:
 
+Canonical clean-slate design set:
+
 - `docs/330-Generic-Assistant-Platform.md`
 - `docs/340-Memory-Model.md`
 - `docs/350-Task-Runtime.md`
@@ -108,6 +110,25 @@ Docs:
 - `docs/380-Evaluation-And-Quality.md`
 - `docs/390-Identity-And-Collaboration.md`
 - `docs/400-Channels-And-Integrations.md`
+- `docs/410-Core-Data-Model.md`
+- `docs/420-Request-Runtime.md`
+- `docs/430-Assistant-Profiles-And-Templates.md`
+- `docs/440-Tool-Model.md`
+- `docs/450-Industry-Patterns-For-Adaptive-Assistants.md`
+- `docs/460-Adaptive-Evolution-Model.md`
+- `docs/470-Assistant-Architecture-Card.html`
+
+Reusable skill:
+
+- `skills/build-info-card/`
+
+Reference convention for the clean-slate set:
+
+- use inline reference markers such as `[1][2]` for externally derived claims
+- end each design doc with a short `References` section when it depends on external or upstream design sources
+
+Existing implementation and historical notes:
+
 - `docs/80-Settings-And-Operations.md`
 - `docs/90-Session-Summaries.md`
 - `docs/100-Packaging-And-Installer.md`

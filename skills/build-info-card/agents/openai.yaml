@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Info Card"
+  short_description: "Turn dense content into single-page info cards."
+  default_prompt: "Use $build-info-card to turn the current topic into a single-page information card with strong hierarchy and concise copy."

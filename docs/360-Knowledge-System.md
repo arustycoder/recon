@@ -2,87 +2,94 @@
 
 ## Goal
 
-Define how `recon` ingests, indexes, retrieves, cites, and refreshes knowledge so the assistant can answer with grounded sources instead of raw prompt memory alone.
+Define how the assistant ingests, indexes, retrieves, cites, and refreshes external knowledge so answers can be grounded in managed sources.
+
+This document assumes the system architecture in `docs/330-Generic-Assistant-Platform.md` and the request and policy constraints described in `docs/420-Request-Runtime.md` and `docs/370-Safety-And-Permissions.md` [1][2][3].
 
 ## Scope
 
 ### Included
 
-- local files, uploaded files, and URLs as first-class sources
-- document parsing and chunking
-- searchable metadata
-- retrieval with citations
-- source freshness and reindex state
-- permission-aware source visibility
+- files, URLs, notes, and future connectors as sources
+- parsing, normalization, and chunking
+- metadata-aware retrieval
+- source citations
+- freshness and reindex state
+- permission-aware visibility
 
 ### Excluded
 
-- full enterprise connector catalog in the first phase
-- opaque retrieval with no source attribution
-- automatic web crawling beyond explicit sources
+- opaque retrieval with no attribution
+- uncontrolled web crawling
+- connector-specific implementation details
 
-## Source Model
+## Core Objects
 
-Recommended levels:
+### Collection
 
-- `knowledge_source`: user-visible source definition
-- `knowledge_document`: normalized document extracted from a source
-- `knowledge_chunk`: retrieval unit
+A logical group of sources visible to a workspace, team, or profile.
 
-Sources may begin as:
+### Source
 
-- uploaded file
-- local path
-- saved URL
-- future external connector
+A user-visible knowledge asset such as a file, URL, or external connector target.
 
-## Behavior
+### Document
 
-- ingestion should normalize content into documents and chunks
-- retrieval should return both content and citation metadata
-- the assistant should surface source labels and snippet-level references when knowledge retrieval materially influences the answer
-- users must be able to reindex, disable, or delete a source
-- workspace visibility rules must be enforced before retrieval
+Normalized content extracted from a source.
+
+### Chunk
+
+The retrieval unit used during search and grounding.
+
+## Lifecycle
+
+1. source registration
+2. content extraction
+3. normalization
+4. chunking and indexing
+5. retrieval and citation
+6. refresh, archive, or deletion
 
 ## Retrieval Rules
 
-- retrieval should combine semantic matching and metadata filtering when available
-- profile and workspace settings may define default source groups
-- retrieval should stay bounded by token budget and citation quality
-- low-confidence retrieval should not silently masquerade as known fact
+- retrieval should combine semantic relevance with metadata filters when available
+- retrieval must honor workspace and policy visibility
+- low-confidence retrieval should not be presented as fact
+- any answer materially shaped by retrieval should expose citations
+- source freshness should be inspectable at the source level
+- retrieval should not bypass policy just because a source is highly relevant [3]
 
 ## Data Impact
 
-Recommended new entities:
+Recommended entities:
 
+- `knowledge_collections`
 - `knowledge_sources`
 - `knowledge_documents`
 - `knowledge_chunks`
-- `retrieval_logs`
+- `retrieval_events`
 
-Suggested tracked fields:
+Suggested fields:
 
-- source type, label, owner, scope
+- owner and scope
+- source type
 - content hash and version
 - indexing status
+- sensitivity label
 - citation metadata
 - last indexed time
-- last retrieval time
+- last retrieved time
 
-## UI Impact
+## Client Impact
 
-- users need a source library rather than a hidden attachment-only model
-- source detail pages should show ingest status and last refresh time
-- retrieved sources should be inspectable from the answer or task result
+- users need a source library, not only raw attachment storage
+- retrieval-driven answers should expose source labels and snippets
+- source pages should show ingest status, freshness, and visibility
 
-## Implementation Notes
+## References
 
-- metadata may remain in SQLite while vector storage stays pluggable
-- URL ingestion should build on the bounded fetch discipline already introduced for link preview
-- the first phase should prioritize explicit user-managed sources over automatic crawling
+[1] `docs/330-Generic-Assistant-Platform.md`
 
-## Relationship To Existing Docs
+[2] `docs/420-Request-Runtime.md`
 
-- complements `docs/290-Attachments-And-Rich-Content.md`
-- complements `docs/320-Gateway-Link-Preview.md`
-- complements `docs/330-Generic-Assistant-Platform.md`
+[3] `docs/370-Safety-And-Permissions.md`

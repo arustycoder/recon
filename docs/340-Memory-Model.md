@@ -2,84 +2,89 @@
 
 ## Goal
 
-Define how `recon` stores, retrieves, updates, and deletes assistant memory so the product can go beyond stateless chat while staying inspectable and controllable.
+Define how the assistant stores, retrieves, updates, and deletes durable context without turning memory into an opaque side effect.
+
+This document assumes the profile and adaptive layering defined in `docs/330-Generic-Assistant-Platform.md` and `docs/460-Adaptive-Evolution-Model.md` [1][2].
 
 ## Scope
 
 ### Included
 
-- recent conversation context
-- session summary memory
-- workspace-scoped saved memory
-- profile-scoped default memory
-- memory approval, pinning, and deletion
-- memory retrieval rules for prompt construction
+- conversation summary memory
+- user memory
+- workspace memory
+- profile memory
+- memory proposal, approval, retrieval, and deletion
+- retention and forgetting rules
 
 ### Excluded
 
-- hidden self-modifying memory with no user visibility
-- unconstrained autonomous memory writes
-- cross-tenant global memory sharing
+- hidden self-editing memory with no user visibility
+- global cross-organization memory
+- unlimited automatic memory growth
 
-## Memory Layers
+## Memory Scopes
 
-Prompt assembly should treat memory as layered context:
+- `profile`: reusable defaults bundled with an assistant profile
+- `user`: personal preferences and stable working habits
+- `workspace`: shared context for a project or team space
+- `conversation`: compressed state for one thread
 
-1. system and profile instructions
-2. workspace structured context
-3. session summary
-4. selected saved memories
-5. recent messages
+## Memory Classes
 
-The assistant should not load all stored memory blindly. It should load only the minimum relevant memory for the current request.
+- `instruction`
+- `preference`
+- `fact`
+- `summary`
+- `constraint`
 
-## Memory Types
+Each memory record should have exactly one scope and one class.
 
-### Session Summary
+## Retrieval Order
 
-- concise recap of the current conversation
-- refreshed periodically or at explicit checkpoints
-- used to compress older turns without losing continuity
+Prompt assembly should resolve memory in this order:
 
-### Saved Memory
+1. profile instructions
+2. approved adaptive overlays
+3. user memory
+4. workspace memory
+5. conversation summary
+6. recent messages
 
-- durable fact or preference worth reusing later
-- examples: preferred language, project goals, recurring constraints, stable user preferences
-- may be user-created, user-approved, or system-imported
-
-### Profile Memory
-
-- default memory bundled with an assistant profile
-- examples: house style, team conventions, domain guardrails
-
-### Workspace Memory
-
-- memory visible to all conversations inside one workspace
-- suitable for project goals, terminology, stakeholders, and standing instructions
+The runtime should load only relevant memory, not every stored item.
 
 ## Behavior
 
-- the assistant may propose memory candidates, but durable writes should require explicit approval in the first phase
-- users must be able to pin, edit, archive, and delete saved memory
-- each memory item should record scope, source, and last-used time
-- session summaries may be refreshed automatically because they are compression artifacts, not durable facts
-- memory retrieval should prefer high-salience, recent, and explicitly pinned items
+- the assistant may propose memory candidates, but durable writes should be explicit by default
+- every durable memory item must show source, scope, status, and last-used time
+- users must be able to pin, edit, archive, and delete memory
+- summaries may refresh automatically because they are compression artifacts, not durable truth
+- memory retrieval should prefer pinned, recent, and high-salience items
+- adaptive overlays should not be stored as memory records, even when they are learned from repeated behavior [2]
+
+## Retention Rules
+
+- summaries may be regenerated
+- facts and preferences should be versioned instead of silently overwritten
+- archived memory should be excluded from default retrieval
+- deleted memory should stop participating in retrieval immediately
 
 ## Data Impact
 
-Recommended new entities:
+Recommended entities:
 
 - `memory_records`
-- `memory_links`
+- `memory_versions`
+- `memory_references`
 
-Suggested `memory_records` fields:
+Suggested fields:
 
 - `id`
-- `scope_type` such as `profile`, `workspace`, `session`
+- `scope_type`
 - `scope_id`
-- `kind` such as `summary`, `fact`, `preference`, `instruction`
+- `class`
 - `content`
-- `status` such as `active`, `archived`, `deleted`
+- `status`
 - `source_type`
 - `source_id`
 - `pinned`
@@ -87,19 +92,14 @@ Suggested `memory_records` fields:
 - `created_at`
 - `updated_at`
 
-## UI Impact
+## Client Impact
 
-- memory should be visible in a dedicated manager, not hidden inside raw database state
-- session summaries may stay lightweight in the conversation UI
-- durable memory actions should be available as explicit user controls: `保存为记忆`, `固定`, `删除`
+- clients should expose memory as a first-class asset, not a hidden internal state
+- durable memory actions should be explicit
+- memory surfaced in answers should be inspectable when it materially affected the result
 
-## Implementation Notes
+## References
 
-- the first implementation can stay local and deterministic for summary refresh and ranking
-- memory retrieval should happen in the gateway so desktop and future channels share the same behavior
-- later phases can add assistant-suggested memory extraction and confidence scoring
+[1] `docs/330-Generic-Assistant-Platform.md`
 
-## Relationship To Existing Docs
-
-- complements `docs/90-Session-Summaries.md`
-- complements `docs/330-Generic-Assistant-Platform.md`
+[2] `docs/460-Adaptive-Evolution-Model.md`

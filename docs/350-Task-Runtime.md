@@ -2,35 +2,32 @@
 
 ## Goal
 
-Define how `recon` executes multi-step assistant work that cannot be completed inside one foreground chat request.
+Define how the assistant executes work that is too long, too stateful, or too approval-heavy for one foreground response.
+
+This document assumes the request lifecycle in `docs/420-Request-Runtime.md` and the approval model in `docs/370-Safety-And-Permissions.md` [1][2].
 
 ## Scope
 
 ### Included
 
-- task creation from chat or API
+- task creation from any channel
 - background execution
 - step tracking
 - approval checkpoints
 - retries, cancellation, and resume
-- user-visible task state
+- task outputs and artifacts
 
 ### Excluded
 
-- unrestricted autonomous agent swarms
-- cron-style scheduling in the first phase
-- distributed queue infrastructure
+- unrestricted autonomous multi-agent swarms
+- hidden side effects with no task record
+- distributed job orchestration requirements in the first architecture cut
 
-## Core Model
+## Core Objects
 
 ### Task
 
-A user-facing unit of work such as:
-
-- summarize a document set
-- compare providers
-- gather references
-- run a tool-backed workflow
+A user-visible unit of work with an owner, scope, goal, and status.
 
 ### Task Run
 
@@ -38,11 +35,13 @@ A concrete execution attempt for one task.
 
 ### Task Step
 
-A tracked unit inside one run, such as planning, retrieval, tool call, synthesis, or approval wait.
+A bounded stage such as planning, retrieval, tool use, synthesis, or approval wait.
+
+### Task Artifact
+
+A durable output such as a report, file, citation set, or structured result.
 
 ## Status Model
-
-Recommended task statuses:
 
 - `draft`
 - `queued`
@@ -55,44 +54,48 @@ Recommended task statuses:
 
 ## Behavior
 
-- a chat turn may return a final answer or create a task when the work is long-running
+- a request may complete inline or create a task
 - side-effecting steps should support approval gates before execution
-- each step should record input summary, output summary, and error state
-- retries should attach to the same task but create a new run record
-- canceled tasks should remain inspectable after cancellation
+- retries should create a new run while preserving task identity
+- canceled tasks should remain inspectable
+- completed tasks may publish a result back to the originating conversation or channel
+- approval-gated steps should inherit the same policy constraints as foreground requests [2]
+
+## Execution Rules
+
+- each step should record intent, inputs, outputs, and error state
+- long-running tasks should be resumable after process restarts
+- tasks should be idempotent at the step boundary where possible
+- approval waits should be modeled as first-class task states, not ad hoc pauses
 
 ## Data Impact
 
-Recommended new entities:
+Recommended entities:
 
 - `tasks`
 - `task_runs`
 - `task_steps`
+- `task_artifacts`
 - `task_approvals`
 
-Suggested tracked fields:
+Suggested fields:
 
-- task identity and workspace/session linkage
-- requested profile and provider strategy
+- owner, workspace, and conversation linkage
+- requested profile and policy context
 - current status and active step
 - approval state
-- correlation ids for tool calls and gateway requests
-- timestamps and summarized outputs
+- timestamps
+- output summary
+- correlation ids for request, tool, and audit events
 
-## UI Impact
+## Client Impact
 
-- desktop should show tasks separately from raw chat history
-- a task detail view should expose steps, approvals, outputs, and errors
-- completed tasks may post a summary back into the conversation that created them
+- clients should show tasks separately from transient chat output
+- task details should expose steps, approvals, outputs, and errors
+- tasks should be pollable and subscribable across channels
 
-## Implementation Notes
+## References
 
-- the gateway should own task execution so all clients share one runtime model
-- the first phase can use in-process execution with persisted state
-- request observability should extend to tasks instead of creating a parallel opaque subsystem
+[1] `docs/420-Request-Runtime.md`
 
-## Relationship To Existing Docs
-
-- complements `docs/150-Skill-Pipeline.md`
-- complements `docs/170-Gateway-Observability.md`
-- complements `docs/330-Generic-Assistant-Platform.md`
+[2] `docs/370-Safety-And-Permissions.md`

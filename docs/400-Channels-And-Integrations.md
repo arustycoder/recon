@@ -2,66 +2,87 @@
 
 ## Goal
 
-Define how `recon` exposes the assistant through multiple clients and integrations without coupling core behavior to the current desktop UI.
+Define how the assistant is delivered through multiple clients and integrations without coupling core behavior to any one interface.
+
+This document assumes the shared runtime contract defined in `docs/330-Generic-Assistant-Platform.md` and the canonical request lifecycle in `docs/420-Request-Runtime.md` [1][2].
 
 ## Scope
 
 ### Included
 
-- desktop client
+- first-party clients
 - HTTP API
-- webhook and callback patterns
+- webhook and event callbacks
 - future chat and messaging connectors
-- multimodal input as channel payloads
-- shared correlation and attachment rules
+- multimodal input normalization
+- shared request, task, and approval contracts
 
 ### Excluded
 
-- implementing every external connector now
-- channel-specific business logic that bypasses the gateway
+- connector-specific business logic in the core runtime
+- channel-specific policy bypasses
 
-## Channel Model
+## Channel Types
+
+- web client
+- desktop client
+- mobile client
+- direct API client
+- connector client such as chat, email, or workflow tools
+
+## Canonical Contracts
 
 Every channel should map onto the same core concepts:
 
-- user identity
+- actor
 - workspace
 - conversation
+- request
 - task
-- resources
+- resource
 - profile
-
-The channel adapter should translate channel-specific input into the shared gateway model rather than inventing its own workflow.
 
 ## Supported Interaction Modes
 
-- synchronous request/response
+- synchronous response
 - streamed response
-- asynchronous task creation with later callback or polling
+- asynchronous task creation
+- approval request and approval response
+- event subscription or polling
 
-## Integration Surfaces
+## Modality Rules
 
-Recommended first-class surfaces:
+- text, files, URLs, images, and audio should normalize into shared resource records when possible
+- channel adapters should preserve source metadata
+- channels may differ in presentation, but not in orchestration semantics
+- temporary or no-learning channel modes should still map onto the same request and policy model [2]
 
-- desktop app
-- gateway HTTP API
-- webhook callbacks for task completion or approval requests
-- future connectors for chat platforms and email
+## Client Responsibilities
 
-## Attachment And Modality Rules
+- collect input
+- present streaming output
+- surface approvals, citations, and task state
+- capture feedback
 
-- channels may submit text, files, URLs, and later audio or images
-- all non-text inputs should normalize into shared resource records before model use when possible
-- channel adapters should preserve source metadata so downstream citations and audits remain accurate
+## Runtime Responsibilities
 
-## Implementation Notes
+- policy enforcement
+- context assembly
+- retrieval
+- tool use
+- task execution
+- persistence
 
-- the gateway should remain the source of truth for orchestration, policies, memory, and task state
-- the desktop app should be treated as one client, not the product boundary
-- new channels should reuse the same request ids, task ids, and audit model
+## Data Impact
 
-## Relationship To Existing Docs
+Recommended entities:
 
-- complements `docs/120-Gateway-and-Service-Layer.md`
-- complements `docs/290-Attachments-And-Rich-Content.md`
-- complements `docs/330-Generic-Assistant-Platform.md`
+- `channel_bindings`
+- `channel_sessions`
+- `event_subscriptions`
+
+## References
+
+[1] `docs/330-Generic-Assistant-Platform.md`
+
+[2] `docs/420-Request-Runtime.md`
