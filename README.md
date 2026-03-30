@@ -117,6 +117,10 @@ Canonical clean-slate design set:
 - `docs/450-Industry-Patterns-For-Adaptive-Assistants.md`
 - `docs/460-Adaptive-Evolution-Model.md`
 - `docs/470-Assistant-Architecture-Card.html`
+- `docs/480-Product-Positioning-And-User-Segments.md`
+- `docs/490-Core-User-Journeys.md`
+- `docs/500-Learning-And-Trust-UX.md`
+- `docs/510-Collaboration-And-Automation-Model.md`
 
 Reusable skill:
 

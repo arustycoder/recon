@@ -2,7 +2,7 @@
 
 ## Goal
 
-Define the target-state architecture for `recon` as a general-purpose, customizable AI assistant product.
+Define the target-state architecture for `recon` as a workspace-centered, customizable AI assistant product.
 
 This architecture is informed by the adaptive-assistant patterns summarized in `docs/450-Industry-Patterns-For-Adaptive-Assistants.md` and the evolution model in `docs/460-Adaptive-Evolution-Model.md`, especially the separation of stable profile state from learned behavior [1][2].
 
@@ -32,6 +32,10 @@ This architecture is informed by the adaptive-assistant patterns summarized in `
 - `docs/440-Tool-Model.md`
 - `docs/450-Industry-Patterns-For-Adaptive-Assistants.md`
 - `docs/460-Adaptive-Evolution-Model.md`
+- `docs/480-Product-Positioning-And-User-Segments.md`
+- `docs/490-Core-User-Journeys.md`
+- `docs/500-Learning-And-Trust-UX.md`
+- `docs/510-Collaboration-And-Automation-Model.md`
 
 ## Core Product Objects
 

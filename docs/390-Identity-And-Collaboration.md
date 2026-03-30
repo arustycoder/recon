@@ -22,6 +22,7 @@ This document assumes the workspace-centered architecture in `docs/330-Generic-A
 - SSO provider implementation details
 - real-time co-editing requirements
 - enterprise org hierarchy modeling beyond teams
+- task assignment and automation workflow semantics beyond ownership and role boundaries
 
 ## Core Actors
 
@@ -62,6 +63,7 @@ Recommended entities:
 
 - clients should show who owns a workspace, profile, source, or task
 - sharing state should be visible before a user publishes or deletes an asset
+- clients should make the difference between ownership, edit access, and task responsibility obvious
 
 ## References
 

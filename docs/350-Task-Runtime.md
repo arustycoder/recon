@@ -2,7 +2,7 @@
 
 ## Goal
 
-Define how the assistant executes work that is too long, too stateful, or too approval-heavy for one foreground response.
+Define how the assistant executes work that is too long, too stateful, too repeatable, or too approval-heavy for one foreground response.
 
 This document assumes the request lifecycle in `docs/420-Request-Runtime.md` and the approval model in `docs/370-Safety-And-Permissions.md` [1][2].
 
@@ -10,7 +10,7 @@ This document assumes the request lifecycle in `docs/420-Request-Runtime.md` and
 
 ### Included
 
-- task creation from any channel
+- task creation from any channel, schedule, or external event trigger
 - background execution
 - step tracking
 - approval checkpoints
@@ -54,12 +54,13 @@ A durable output such as a report, file, citation set, or structured result.
 
 ## Behavior
 
-- a request may complete inline or create a task
+- a foreground request, schedule, or external event may create a task
 - side-effecting steps should support approval gates before execution
 - retries should create a new run while preserving task identity
 - canceled tasks should remain inspectable
 - completed tasks may publish a result back to the originating conversation or channel
 - approval-gated steps should inherit the same policy constraints as foreground requests [2]
+- automation should create inspectable task records rather than hidden background work
 
 ## Execution Rules
 
