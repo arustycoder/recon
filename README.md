@@ -108,6 +108,9 @@ Docs:
 - `docs/380-Evaluation-And-Quality.md`
 - `docs/390-Identity-And-Collaboration.md`
 - `docs/400-Channels-And-Integrations.md`
+- `docs/410-Agentic-System-Landscape-Tracker.md`
+- `docs/420-Rust-Port-Evaluation-For-Pi-Mono-Capabilities.md`
+- `docs/430-Pi-Mono-Inspired-Product-Design-Brief.md`
 - `docs/80-Settings-And-Operations.md`
 - `docs/90-Session-Summaries.md`
 - `docs/100-Packaging-And-Installer.md`
